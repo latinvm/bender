@@ -1,0 +1,10 @@
+freqtrade==2023.12.0
+pandas-ta==0.3.14b0
+python-binance==1.0.19
+pandas==2.1.4
+numpy==1.26.2
+transformers==4.36.2
+python-telegram-bot==20.7
+plotly==5.18.0
+optuna==3.4.0
+python-dotenv==1.0.0
