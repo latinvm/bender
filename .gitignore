@@ -1,1 +1,18 @@
+# .gitignore
+
+# Python build artifacts
+*.egg-info/
+__pycache__/
+*.pyc
+build/
+dist/
+
+# Virtual environment
 venv/
+
+# Environment variables
+.env
+
+# IDE specific files (optional, but recommended)
+.vscode/
+.idea/
