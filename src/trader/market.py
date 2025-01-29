@@ -95,3 +95,133 @@ class MarketOperations:
 
         except KeyboardInterrupt:
             logger.info("Price monitoring stopped by user")
+    
+    def get_available_balance(self, symbol: str) -> float:
+        """Get available balance for a specific asset"""
+        logger.info(f"Fetching balance for {symbol}")
+        try:
+            balances = self.client.bitvavo.balance({})
+            for balance in balances:
+                if balance['symbol'] == symbol:
+                    return float(balance['available'])
+            return 0.0
+        except Exception as e:
+            logger.error(f"Error fetching balance: {str(e)}")
+            raise APIConnectionError(f"Failed to fetch balance: {str(e)}") from e
+    
+    def place_limit_order(self, market: str, side: str, amount: float, price: float) -> Dict:
+        """
+        Place a limit order
+        Args:
+            market: Trading pair (e.g., 'BTC-EUR')
+            side: 'buy' or 'sell'
+            amount: Amount in base currency (e.g., BTC)
+            price: Limit price in quote currency (e.g., EUR)
+        """
+        logger.info(f"Placing {side} limit order: {amount} {market} @ {price}")
+        try:
+            response = self.client.bitvavo.placeOrder(market, side, 'limit', {
+                'amount': str(amount),
+                'price': str(price)
+            })
+            logger.info(f"Order placed successfully: {response['orderId']}")
+            return response
+        except Exception as e:
+            logger.error(f"Error placing limit order: {str(e)}")
+            raise APIConnectionError(f"Failed to place limit order: {str(e)}") from e
+
+    def place_market_order(self, market: str, side: str, amount: float) -> Dict:
+        """
+        Place a market order
+        Args:
+            market: Trading pair (e.g., 'BTC-EUR')
+            side: 'buy' or 'sell'
+            amount: Amount in base currency (e.g., BTC)
+        """
+        logger.info(f"Placing {side} market order: {amount} {market}")
+        try:
+            response = self.client.bitvavo.placeOrder(market, side, 'market', {
+                'amount': str(amount)
+            })
+            logger.info(f"Order placed successfully: {response['orderId']}")
+            return response
+        except Exception as e:
+            logger.error(f"Error placing market order: {str(e)}")
+            raise APIConnectionError(f"Failed to place market order: {str(e)}") from e
+
+    def cancel_order(self, market: str, order_id: str) -> Dict:
+        """Cancel an existing order"""
+        logger.info(f"Canceling order {order_id} for {market}")
+        try:
+            response = self.client.bitvavo.cancelOrder(market, order_id)
+            logger.info(f"Order canceled successfully: {order_id}")
+            return response
+        except Exception as e:
+            logger.error(f"Error canceling order: {str(e)}")
+            raise APIConnectionError(f"Failed to cancel order: {str(e)}") from e
+
+    def get_order_status(self, market: str, order_id: str) -> Dict:
+        """Get the status of an order"""
+        logger.info(f"Fetching status for order {order_id}")
+        try:
+            response = self.client.bitvavo.getOrder(market, order_id)
+            logger.debug(f"Order status: {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Error fetching order status: {str(e)}")
+            raise APIConnectionError(f"Failed to get order status: {str(e)}") from e
+
+    def get_open_orders(self, market: str) -> List[Dict]:
+        """Get all open orders for a market"""
+        logger.info(f"Fetching open orders for {market}")
+        try:
+            response = self.client.bitvavo.getOrders(market, {})
+            logger.debug(f"Open orders: {response}")
+            return response
+        except Exception as e:
+            logger.error(f"Error fetching open orders: {str(e)}")
+            raise APIConnectionError(f"Failed to get open orders: {str(e)}") from e
+    
+    def list_alt_coins(self, max_price: float = 10.0) -> List[Dict]:
+        """List all available altcoins under a certain price"""
+        logger.info(f"Fetching altcoins under €{max_price}")
+        try:
+            all_markets = self.client.bitvavo.markets({})
+            alt_coins = []
+            
+            for market in all_markets:
+                if market['quote'] == 'EUR':  # Only EUR pairs
+                    try:
+                        ticker = self.client.bitvavo.tickerPrice({'market': market['market']})
+                        price = float(ticker['price'])
+                        if price <= max_price:
+                            alt_coins.append({
+                                'market': market['market'],
+                                'price': price,
+                                'status': market['status']
+                            })
+                    except Exception:
+                        continue
+                        
+            return sorted(alt_coins, key=lambda x: x['price'])
+        except Exception as e:
+            logger.error(f"Error fetching altcoins: {str(e)}")
+            raise
+    
+    def get_detailed_market_info(self, market: str) -> Dict:
+        """Get detailed market information including 24h volume"""
+        logger.info(f"Fetching detailed info for {market}")
+        try:
+            ticker_24h = self.client.bitvavo.ticker24h({'market': market})
+            return {
+                'market': market,
+                'price': float(ticker_24h['last']),
+                'volume': float(ticker_24h['volume']),
+                'volume_quote': float(ticker_24h['volumeQuote']),
+                'open': float(ticker_24h['open']),
+                'high': float(ticker_24h['high']),
+                'low': float(ticker_24h['low'])
+            }
+        except Exception as e:
+            logger.error(f"Error fetching detailed market info: {str(e)}")
+            raise
