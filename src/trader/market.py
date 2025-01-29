@@ -140,11 +140,70 @@ class MarketOperations:
         """
         logger.info(f"Placing {side} market order: {amount} {market}")
         try:
+            # Validate market first
+            market_info = self.get_market_info(market)
+            if market_info['status'] != 'trading':
+                raise APIConnectionError(f"Market {market} is not available for trading")
+                
+            # Log market requirements
+            logger.info("\n=== Market Requirements ===")
+            logger.info(f"Market: {market}")
+            logger.info(f"Min Base Asset: {market_info.get('minOrderInBaseAsset')} {market_info['base']}")
+            logger.info(f"Min Quote Asset: {market_info.get('minOrderInQuoteAsset')} EUR")
+            
+            # Get minimum order sizes
+            min_base = float(market_info.get('minOrderInBaseAsset', '0'))
+            min_quote = float(market_info.get('minOrderInQuoteAsset', '0'))
+            
+            # Get current price for quote calculations
+            ticker = self.get_ticker(market)
+            current_price = float(ticker['price'])
+            
+            # Calculate order value in quote currency (EUR)
+            order_value = amount * current_price
+            
+            logger.info(f"Order amount: {amount} {market_info['base']}")
+            logger.info(f"Order value: €{order_value:.2f}")
+            
+            # Check minimum order requirements
+            if amount < min_base:
+                logger.error(f"Order amount {amount} {market_info['base']} below minimum {min_base} {market_info['base']}")
+                raise APIConnectionError(f"Order amount {amount} {market_info['base']} below minimum {min_base} {market_info['base']}")
+                
+            if order_value < min_quote:
+                logger.error(f"Order value €{order_value:.2f} below minimum €{min_quote}")
+                raise APIConnectionError(f"Order value €{order_value:.2f} below minimum €{min_quote}")
+                
+            logger.info("Order meets minimum requirements")
+            
+            # Round amount to market precision
+            precision = len(str(min_base).split('.')[-1])
+            rounded_amount = round(amount, precision)
+            
+            if rounded_amount != amount:
+                logger.info(f"Rounded order amount from {amount} to {rounded_amount} to match market precision")
+            
             response = self.client.bitvavo.placeOrder(market, side, 'market', {
-                'amount': str(amount)
+                'amount': str(rounded_amount)
             })
+            
+            # Log full response for debugging
+            logger.debug(f"API Response: {response}")
+            
+            # Check if response indicates an error
+            if isinstance(response, dict) and 'error' in response:
+                raise APIConnectionError(f"API Error: {response['error']}")
+            
+            # Check if response is valid
+            if not isinstance(response, dict) or 'orderId' not in response:
+                raise APIConnectionError(f"Invalid API response format: {response}")
+                
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
+            
+        except MarketNotFoundError as e:
+            logger.error(f"Market not found: {market}")
+            raise
         except Exception as e:
             logger.error(f"Error placing market order: {str(e)}")
             raise APIConnectionError(f"Failed to place market order: {str(e)}") from e
@@ -208,6 +267,63 @@ class MarketOperations:
             logger.error(f"Error fetching altcoins: {str(e)}")
             raise
     
+    def test_trade(self, market: str) -> bool:
+        """
+        Execute a test trade cycle (buy and sell) with minimum amounts
+        Returns True if successful, False otherwise
+        """
+        logger.info(f"Testing trade cycle for {market}")
+        try:
+            # Get market info for minimum order size
+            market_info = self.get_market_info(market)
+            if market_info['status'] != 'trading':
+                logger.error(f"Market {market} is not available for trading")
+                return False
+                
+            # Get minimum order sizes and current price
+            min_base = float(market_info.get('minOrderInBaseAsset', '0'))
+            min_quote = float(market_info.get('minOrderInQuoteAsset', '0'))
+            ticker = self.get_ticker(market)
+            current_price = float(ticker['price'])
+            
+            # Calculate minimum amount that satisfies both base and quote requirements
+            quote_min_amount = min_quote / current_price
+            test_amount = max(min_base, quote_min_amount) * 1.1  # 10% above minimum
+            
+            logger.info("\n=== Test Trade Parameters ===")
+            logger.info(f"Market: {market}")
+            logger.info(f"Min Base Amount: {min_base} {market_info['base']}")
+            logger.info(f"Min Quote Amount: {min_quote} EUR")
+            logger.info(f"Current Price: €{current_price:.8f}")
+            logger.info(f"Calculated Test Amount: {test_amount:.8f} {market_info['base']}")
+            logger.info(f"Estimated Value: €{(test_amount * current_price):.2f}")
+            
+            # Place test buy order
+            buy_order = self.place_market_order(market, 'buy', test_amount)
+            logger.info(f"Test buy successful: {buy_order['orderId']}")
+            
+            # Small delay to ensure order is processed
+            time.sleep(2)
+            
+            # Get actual amount bought
+            balance = self.get_available_balance(market.split('-')[0])
+            if balance <= 0:
+                logger.error("Test buy succeeded but no balance found")
+                return False
+                
+            logger.info(f"Placing test sell order: {balance:.8f} {market}")
+            
+            # Sell everything back
+            sell_order = self.place_market_order(market, 'sell', balance)
+            logger.info(f"Test sell successful: {sell_order['orderId']}")
+            
+            logger.info("Trade cycle test completed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Trade cycle test failed: {str(e)}")
+            return False
+
     def get_detailed_market_info(self, market: str) -> Dict:
         """Get detailed market information including 24h volume"""
         logger.info(f"Fetching detailed info for {market}")

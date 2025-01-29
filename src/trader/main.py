@@ -1,10 +1,11 @@
+from typing import Dict, List
+import logging
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.market import MarketOperations
 from trader.logger import setup_logger
 from trader.exceptions import BitvavoError, MarketNotFoundError, APIConnectionError, AuthenticationError
 from trader.strategies import SimpleMAStrategy
-import logging
 
 # Setup logging once at the application start
 setup_logger('trader')
@@ -38,29 +39,50 @@ def display_market_info(market_ops: MarketOperations, market: str) -> None:
     except (MarketNotFoundError, APIConnectionError) as e:
         logger.error(f"Error getting market info: {str(e)}")
 
-def display_available_altcoins(market_ops: MarketOperations):
-    """Display available altcoins under 10 EUR"""
-    try:
-        alt_coins = market_ops.list_alt_coins(max_price=10.0)
-        
-        logger.info("\n=== Available Altcoins under €10 ===")
-        for coin in alt_coins:
-            logger.info(f"Market: {coin['market']:<10} Price: €{coin['price']:.4f}")
-            
-    except Exception as e:
-        logger.error(f"Error displaying altcoins: {str(e)}")
-
-def check_candidate_coins(market_ops: MarketOperations):
-    """Check trading info for candidate coins"""
-    candidates = ['VET-EUR', 'GALA-EUR', 'CHZ-EUR']
+def find_best_market(market_ops: MarketOperations) -> str:
+    """Find the best market based on volume, volatility, and trend"""
+    logger.info("Finding best market to trade...")
     
-    logger.info("\n=== Candidate Coins Analysis ===")
-    for market in candidates:
+    # Get all altcoins under €10
+    alt_coins = market_ops.list_alt_coins(max_price=10.0)
+    best_market = None
+    best_score = 0
+    
+    for coin in alt_coins:
+        if coin['status'] != 'trading':
+            continue
+            
+        market = coin['market']
         info = market_ops.get_detailed_market_info(market)
-        logger.info(f"\nMarket: {market}")
-        logger.info(f"Current Price: €{info['price']:.6f}")
-        logger.info(f"24h Volume: {info['volume']:.2f} coins (€{info['volume_quote']:.2f})")
-        logger.info(f"24h Range: €{info['low']:.6f} - €{info['high']:.6f}")
+        
+        # Calculate metrics
+        volatility = ((info['high'] - info['low']) / info['low']) * 100
+        volume = info['volume_quote']  # Volume in EUR
+        trend = (info['price'] - info['open']) / info['open'] * 100
+        
+        # Score the market
+        volume_score = min(volume / 10000, 1.0)  # Normalize volume, max at €10k
+        volatility_score = min(volatility / 10, 1.0)  # Normalize volatility, max at 10%
+        trend_score = 0.5 + (trend / 10)  # Normalize trend, 0-1 range
+        
+        total_score = volume_score * 0.4 + volatility_score * 0.4 + trend_score * 0.2
+        
+        logger.info(f"\nAnalyzing {market}:")
+        logger.info(f"Volume: €{volume:.2f}")
+        logger.info(f"24h Volatility: {volatility:.1f}%")
+        logger.info(f"Price Trend: {trend:+.1f}%")
+        logger.info(f"Total Score: {total_score:.2f}")
+        
+        if total_score > best_score:
+            best_score = total_score
+            best_market = market
+    
+    if not best_market:
+        logger.warning("No suitable market found, using default")
+        return 'VET-EUR'
+    
+    logger.info(f"\nSelected {best_market} with score {best_score:.2f}")
+    return best_market
 
 def main():
     logger.info("Starting trader application")
@@ -71,35 +93,32 @@ def main():
         client = BitvavoClient(api_key=config.api_key, api_secret=config.api_secret)
         market_ops = MarketOperations(client)
         
-        market = 'VET-EUR'
+        # Find best market to trade
+        market = find_best_market(market_ops)
+        logger.info(f"Selected market for trading: {market}")
         
         # Display market information
         display_market_info(market_ops, market)
-
-        # Display available altcoins
-        # display_available_altcoins(market_ops)
-
-        # find potential volatile coins to trade
-        #check_candidate_coins(market_ops)
         
-        # Test order functionality (uncomment to test)
-        # test_orders(market_ops, market)
+        # Run test trade cycle
+        logger.info("Running test trade cycle...")
+        if not market_ops.test_trade(market):
+            logger.error("Test trade failed - aborting strategy")
+            return
+            
+        logger.info("Test trade successful - starting main strategy")
         
-        # Start price monitoring
-        # logger.info("\n=== Starting Price Monitor ===")
-        # market_ops.monitor_price(market, interval=5.0)
-
-         # Create and run strategy
+        # Create strategy with aggressive settings
         strategy = SimpleMAStrategy(
             market_ops=market_ops,
             market=market,
-            investment_amount=5.0,  # Start with 5 EUR max investment
-            short_window=5,          # 5-minute short MA
-            long_window=15           # 15-minute long MA
+            investment_amount=10.0,  # Full €10 investment
+            short_window=1,          # 1-minute short MA
+            long_window=3           # 3-minute long MA
         )
         
-        # Run strategy with 1-minute intervals
-        strategy.run(interval=60)
+        # Run strategy with shorter interval for faster trades
+        strategy.run(interval=30)
             
     except AuthenticationError as e:
         logger.error(f"Authentication failed: {str(e)}")
