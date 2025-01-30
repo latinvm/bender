@@ -3,23 +3,42 @@ from typing import NamedTuple
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env file if it exists
-load_dotenv()
-
-# Get project root directory (2 levels up from this file)
-PROJECT_ROOT = Path(__file__).parent.parent.parent
-
 class BitvavoConfig(NamedTuple):
-    api_key: str = os.getenv('BITVAVO_API_KEY', '')
-    api_secret: str = os.getenv('BITVAVO_API_SECRET', '')
+    api_key: str
+    api_secret: str
 
 class DatabaseConfig(NamedTuple):
-    db_path: str = os.getenv('TRADER_DB_PATH', str(PROJECT_ROOT / 'data' / 'trades.db'))
+    db_path: str
 
-def get_config() -> tuple[BitvavoConfig, DatabaseConfig]:
-    """Get application configuration"""
+def get_project_root() -> Path:
+    """Get project root directory (2 levels up from this file)"""
+    return Path(__file__).parent.parent.parent
+
+# Initialize PROJECT_ROOT lazily
+PROJECT_ROOT = None
+
+def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig]:
+    """Get application configuration
+    
+    Args:
+        load_env: Whether to load environment variables from .env file
+    """
+    global PROJECT_ROOT
+    
+    # Load environment variables if requested
+    if load_env:
+        load_dotenv()
+    
+    if PROJECT_ROOT is None:
+        PROJECT_ROOT = get_project_root()
+    
     # Ensure data directory exists
     data_dir = PROJECT_ROOT / 'data'
     data_dir.mkdir(exist_ok=True)
     
-    return BitvavoConfig(), DatabaseConfig()
+    # Get configuration from environment
+    api_key = os.getenv('BITVAVO_API_KEY', '')
+    api_secret = os.getenv('BITVAVO_API_SECRET', '')
+    db_path = os.getenv('TRADER_DB_PATH', str(data_dir / 'trades.db'))
+    
+    return BitvavoConfig(api_key, api_secret), DatabaseConfig(db_path)

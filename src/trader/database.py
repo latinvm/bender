@@ -7,9 +7,21 @@ from trader.config import get_config
 
 logger = logging.getLogger('trader.database')
 
+def adapt_datetime(dt: datetime) -> str:
+    """Convert datetime to SQLite-compatible ISO format string"""
+    return dt.isoformat()
+
+def convert_datetime(s: bytes) -> datetime:
+    """Convert SQLite datetime string back to Python datetime"""
+    return datetime.fromisoformat(s.decode())
+
 class TradeDatabase:
     def __init__(self, db_path: str = None):
         """Initialize the trade database"""
+        # Register datetime adapter and converter
+        sqlite3.register_adapter(datetime, adapt_datetime)
+        sqlite3.register_converter("timestamp", convert_datetime)
+        
         # Use provided path or get from config
         if db_path is None:
             _, db_config = get_config()
@@ -18,9 +30,13 @@ class TradeDatabase:
             self.db_path = db_path
         self._init_database()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a database connection with proper datetime handling"""
+        return sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+
     def _init_database(self) -> None:
         """Initialize the database schema"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             
@@ -57,7 +73,7 @@ class TradeDatabase:
 
     def record_trade_entry(self, market: str, entry_price: float, amount: float) -> int:
         """Record a new trade entry"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
@@ -80,19 +96,25 @@ class TradeDatabase:
 
     def record_trade_exit(self, market: str, exit_price: float) -> None:
         """Record a trade exit and calculate profit/loss"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             
-            # Get active trade for this market
+            # Get oldest active trade for this market
             cursor.execute('''
-                SELECT id, entry_price, amount FROM trades
-                WHERE market = ? AND status = 'ACTIVE'
+                SELECT t.id, t.entry_price, t.amount, p.id as position_id
+                FROM trades t
+                JOIN positions p ON p.market = t.market 
+                    AND p.amount = t.amount 
+                    AND p.entry_price = t.entry_price
+                WHERE t.market = ? AND t.status = 'ACTIVE'
+                ORDER BY t.entry_time ASC
+                LIMIT 1
             ''', (market,))
             
             trade = cursor.fetchone()
             if trade:
-                trade_id, entry_price, amount = trade
+                trade_id, entry_price, amount, position_id = trade
                 
                 # Calculate profit/loss
                 profit_loss = (exit_price - entry_price) * amount
@@ -104,11 +126,11 @@ class TradeDatabase:
                     WHERE id = ?
                 ''', (exit_price, datetime.now(), 'CLOSED', profit_loss, trade_id))
                 
-                # Remove from active positions
+                # Remove specific position
                 cursor.execute('''
                     DELETE FROM positions
-                    WHERE market = ? AND status = 'ACTIVE'
-                ''', (market,))
+                    WHERE id = ?
+                ''', (position_id,))
                 
                 conn.commit()
         finally:
@@ -116,7 +138,7 @@ class TradeDatabase:
 
     def get_active_positions(self) -> List[Dict[str, float]]:
         """Get all active positions"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
@@ -138,7 +160,7 @@ class TradeDatabase:
 
     def get_total_profit_loss(self) -> float:
         """Calculate total profit/loss from all closed trades"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
@@ -152,7 +174,7 @@ class TradeDatabase:
 
     def get_trade_history(self) -> List[Dict]:
         """Get history of all trades"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
