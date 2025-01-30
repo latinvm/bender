@@ -1,0 +1,3 @@
+What if different stock is picked when there are still open positions? Keep monitoring those? Possibility to add multiple positions and check those?
+
+When decisions on buying or selling are made, log a verbose "why" message.

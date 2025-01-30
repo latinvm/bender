@@ -1,7 +1,21 @@
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from trader.market import MarketOperations
 from trader.exceptions import MarketNotFoundError, APIConnectionError, AuthenticationError
+from datetime import datetime
+
+@pytest.fixture
+def mock_trade_db():
+    """Fixture for mocked TradeDatabase"""
+    mock = Mock()
+    mock.get_active_positions.return_value = [
+        {
+            'market': 'BTC-EUR',
+            'amount': 0.1,
+            'entry_price': 28000.0
+        }
+    ]
+    return mock
 
 @pytest.fixture
 def mock_bitvavo():
@@ -62,9 +76,55 @@ def mock_client(mock_bitvavo):
     return mock
 
 @pytest.fixture
-def market_ops(mock_client):
+def market_ops(mock_client, mock_trade_db):
     """Fixture for MarketOperations instance"""
-    return MarketOperations(mock_client)
+    with patch('trader.market.TradeDatabase') as mock_db_class:
+        mock_db_class.return_value = mock_trade_db
+        ops = MarketOperations(mock_client)
+        return ops
+
+def test_market_ops_init_with_db(mock_client):
+    """Test MarketOperations initialization with database"""
+    with patch('trader.market.TradeDatabase') as mock_db_class:
+        mock_db = Mock()
+        mock_db_class.return_value = mock_db
+        
+        ops = MarketOperations(mock_client)
+        
+        assert hasattr(ops, 'db')
+        mock_db_class.assert_called_once()
+
+def test_monitor_price_with_positions(market_ops, mock_bitvavo, caplog):
+    """Test price monitoring with active positions"""
+    # Setup mock for current price
+    mock_bitvavo.tickerPrice.return_value = {'price': '30000.00'}
+    
+    # Mock time.sleep to avoid waiting
+    with patch('time.sleep', side_effect=KeyboardInterrupt):
+        market_ops.monitor_price('BTC-EUR')
+    
+    # Verify position and P/L information was logged
+    log_messages = [record.message for record in caplog.records]
+    assert any('BTC-EUR: €30000.00' in msg for msg in log_messages)
+    assert any('Position: 0.10000000 BTC-EUR | Entry: €28000.00 | P/L: €+200.00 (+7.14%)' in msg for msg in log_messages)
+
+def test_monitor_price_no_positions(market_ops, mock_bitvavo, caplog):
+    """Test price monitoring with no active positions"""
+    # Setup empty positions
+    market_ops.db.get_active_positions.return_value = []
+    
+    # Setup mock for current price
+    mock_bitvavo.tickerPrice.return_value = {'price': '30000.00'}
+    
+    # Mock time.sleep to avoid waiting
+    with patch('time.sleep', side_effect=KeyboardInterrupt):
+        market_ops.monitor_price('BTC-EUR')
+    
+    # Verify only price was logged, no position info
+    log_messages = [record.message for record in caplog.records]
+    assert any('BTC-EUR: €30000.00' in msg for msg in log_messages)
+    assert not any('Position:' in msg for msg in log_messages)
+    assert not any('P/L:' in msg for msg in log_messages)
 
 def test_get_balance(market_ops, mock_bitvavo):
     """Test balance retrieval"""

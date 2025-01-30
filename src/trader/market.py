@@ -5,12 +5,14 @@ from trader.logger import setup_logger
 from trader.exceptions import MarketNotFoundError, APIConnectionError, AuthenticationError
 from datetime import datetime
 import time
+from trader.database import TradeDatabase
 
 logger = logging.getLogger('trader.market')
 
 class MarketOperations:
     def __init__(self, client: BitvavoClient):
         self.client = client
+        self.db = TradeDatabase()
         logger.info("MarketOperations initialized")
 
     def get_balance(self) -> List[Dict]:
@@ -70,7 +72,7 @@ class MarketOperations:
 
     def monitor_price(self, market: str, interval: float = 5.0) -> None:
         """
-        Monitor price for a given market
+        Monitor price for a given market and show potential profit/loss for open positions
         Args:
             market: Market to monitor (e.g., 'BTC-EUR')
             interval: Update interval in seconds
@@ -84,11 +86,23 @@ class MarketOperations:
                 current_price = float(ticker['price'])
                 current_time = datetime.now().strftime("%H:%M:%S")
 
+                # Get active positions for this market
+                active_positions = [pos for pos in self.db.get_active_positions() if pos['market'] == market]
+                
+                # Calculate and display price change
                 if previous_price is not None:
                     change = ((current_price - previous_price) / previous_price) * 100
                     logger.info(f"[{current_time}] {market}: €{current_price:.2f} ({change:+.2f}%)")
                 else:
                     logger.info(f"[{current_time}] {market}: €{current_price:.2f}")
+
+                # Display potential profit/loss for each open position
+                for position in active_positions:
+                    entry_price = position['entry_price']
+                    amount = position['amount']
+                    pl_amount = (current_price - entry_price) * amount
+                    pl_percentage = ((current_price - entry_price) / entry_price) * 100
+                    logger.info(f"Position: {amount:.8f} {market} | Entry: €{entry_price:.2f} | P/L: €{pl_amount:+.2f} ({pl_percentage:+.2f}%)")
 
                 previous_price = current_price
                 time.sleep(interval)

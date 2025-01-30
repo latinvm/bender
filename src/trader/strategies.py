@@ -82,6 +82,13 @@ class SimpleMAStrategy:
             
             logger.info(f"Current price: €{current_price:.6f}, 24h Volume: {volume_24h:.2f}")
             
+            # Calculate and show P/L for open positions
+            for market, amount in self.positions.items():
+                entry_price = self.entry_prices[market]
+                pl_amount = (current_price - entry_price) * amount
+                pl_percentage = ((current_price - entry_price) / entry_price) * 100
+                logger.info(f"Position: {amount:.8f} {market} | Entry: €{entry_price:.6f} | P/L: €{pl_amount:+.2f} ({pl_percentage:+.2f}%)")
+            
             # Check if volume is increasing (potential momentum)
             volume_increasing = len(self.volumes) > 1 and self.volumes[-1] > self.volumes[-2]
             
