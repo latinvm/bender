@@ -1,0 +1,105 @@
+# 🤖 Bender Trading Bot
+
+Welcome to Bender - Your Friendly Cryptocurrency Trading Assistant! 
+
+## 🌟 Why Bender?
+
+Ever wished you had a reliable companion to handle your crypto trading while you focus on what matters most to you? That's exactly why I created Bender! As someone passionate about both cryptocurrency and automation, I wanted to share a tool that makes trading more accessible and less time-consuming for everyone.
+
+### 🎯 What Makes Bender Special
+
+- **Peace of Mind**: Set your strategy and let Bender handle the rest
+- **24/7 Operation**: Markets never sleep, and neither does Bender
+- **Smart Strategies**: Implements proven trading strategies while managing risks
+- **Transparent**: Always know what's happening with your trades
+- **User-Friendly**: Built with simplicity in mind - no complex setups needed
+
+### 📈 Trading Strategy
+
+Bender uses a carefully crafted trading strategy designed for both safety and performance:
+
+- **Smart Entry Points**: Combines moving averages with volume analysis to identify optimal trading opportunities
+- **Risk Management**: 
+  - Implements strict stop-loss at -5% to protect your capital
+  - Takes profits at +15% to secure gains
+  - Spreads risk across multiple positions (maximum 3)
+- **Portfolio Management**:
+  - Smart position sizing to optimize your investment
+  - Automatic minimum order handling
+  - Complete trade history tracking
+- **Conservative Approach**: 
+  - Starts with small investment amounts (€10 per trade)
+  - Only enters trades when volume is increasing (reduced slippage risk)
+  - Maintains detailed logs of all operations
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python 3.8 or higher
+- A Bitvavo account ([Sign up here](https://bitvavo.com/invite?a=00B4208D84) to support the project!)
+
+### Why Bitvavo?
+
+I chose Bitvavo as our trading platform for several reasons:
+- 🛡️ Strong security measures
+- 💰 Low trading fees
+- 🌍 Excellent European coverage
+- 👥 Outstanding customer support
+- ⚡ Fast and reliable API
+
+Using my referral link above helps support Bender's development while giving you access to one of Europe's most trusted cryptocurrency platforms!
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/bender.git
+cd bender
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up your configuration
+cp .env.example .env
+# Edit .env with your Bitvavo API credentials
+```
+
+## 🔧 Configuration
+
+1. Create an API key in your Bitvavo account
+2. Add your credentials to the `.env` file:
+```env
+BITVAVO_API_KEY=your_api_key
+BITVAVO_API_SECRET=your_api_secret
+```
+
+## 🎮 Usage
+
+```bash
+python -m src.trader.main
+```
+
+## 💡 Contributing
+
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest new features
+- Submit pull requests
+
+## ❤️ Support the Project
+
+If you find Bender helpful, the best way to support its development is by:
+1. Using my [Bitvavo referral link](https://bitvavo.com/invite?a=00B4208D84) when creating your account
+2. Starring the project on GitHub
+3. Sharing your success stories!
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+*Happy Trading with Bender! 🤖✨*
+
+*Remember: Trading cryptocurrency involves risk. Always trade responsibly and never invest more than you can afford to lose.*
