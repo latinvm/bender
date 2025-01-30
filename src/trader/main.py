@@ -6,6 +6,7 @@ from trader.market import MarketOperations
 from trader.logger import setup_logger
 from trader.exceptions import BitvavoError, MarketNotFoundError, APIConnectionError, AuthenticationError
 from trader.strategies import SimpleMAStrategy
+from trader.database import TradeDatabase
 
 # Setup logging once at the application start
 setup_logger('trader')
@@ -88,9 +89,26 @@ def main():
     logger.info("Starting trader application")
     
     try:
-        # Initialize
-        config = get_config()
-        client = BitvavoClient(api_key=config.api_key, api_secret=config.api_secret)
+        # Initialize configurations
+        bitvavo_config, db_config = get_config()
+        
+        # Initialize database
+        db = TradeDatabase(db_config.db_path)
+        logger.info(f"Initialized trade database at {db_config.db_path}")
+        
+        # Show any active positions from previous runs
+        active_positions = db.get_active_positions()
+        if active_positions:
+            logger.info("Found active positions from previous session:")
+            for pos in active_positions:
+                logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
+        
+        # Show total P/L
+        total_pl = db.get_total_profit_loss()
+        logger.info(f"Total P/L from all trades: €{total_pl:.2f}")
+        
+        # Initialize Bitvavo client
+        client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
         market_ops = MarketOperations(client)
         
         # Find best market to trade

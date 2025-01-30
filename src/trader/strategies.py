@@ -4,6 +4,7 @@ from datetime import datetime
 import time
 from trader.market import MarketOperations
 from trader.exceptions import APIConnectionError
+from trader.database import TradeDatabase
 
 logger = logging.getLogger('trader.strategies')
 
@@ -21,6 +22,16 @@ class SimpleMAStrategy:
         self.volumes: List[float] = []  # Track volume for better entries
         self.positions: Dict[str, float] = {}  # Track multiple positions
         self.entry_prices: Dict[str, float] = {}  # Track entry prices per position
+        
+        # Initialize database
+        self.db = TradeDatabase()
+        
+        # Load any active positions from database
+        active_positions = self.db.get_active_positions()
+        for position in active_positions:
+            self.positions[position['market']] = position['amount']
+            self.entry_prices[position['market']] = position['entry_price']
+            logger.info(f"Loaded active position: {position['amount']} {position['market']} @ €{position['entry_price']:.6f}")
 
     def calculate_moving_average(self, window: int) -> float:
         """Calculate moving average from recent prices"""
@@ -99,6 +110,9 @@ class SimpleMAStrategy:
                 order = self.market_ops.place_market_order(self.market, 'buy', amount)
                 self.positions[self.market] = amount
                 self.entry_prices[self.market] = current_price
+                
+                # Record trade in database
+                self.db.record_trade_entry(self.market, current_price, amount)
                 logger.info(f"Buy order placed at €{current_price:.6f}")
                 
             elif self.should_sell():
@@ -106,9 +120,17 @@ class SimpleMAStrategy:
                     balance = self.positions[market]
                     logger.info(f"Placing sell order for {balance:.2f} {market}")
                     order = self.market_ops.place_market_order(market, 'sell', balance)
+                    
+                    # Record trade exit and calculate P/L
+                    self.db.record_trade_exit(market, current_price)
+                    
                     del self.positions[market]
                     del self.entry_prices[market]
+                    
+                    # Log total P/L
+                    total_pl = self.db.get_total_profit_loss()
                     logger.info(f"Sell order placed at €{current_price:.6f}")
+                    logger.info(f"Total P/L: €{total_pl:.2f}")
                 
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")
@@ -117,6 +139,15 @@ class SimpleMAStrategy:
         """Run the trading strategy"""
         logger.info(f"Starting trading strategy for {self.market}")
         logger.info(f"Investment amount: €{self.investment_amount}")
+        
+        # Log any active positions and total P/L
+        if self.positions:
+            logger.info("Active positions:")
+            for market, amount in self.positions.items():
+                logger.info(f"  {amount:.8f} {market} @ €{self.entry_prices[market]:.6f}")
+        
+        total_pl = self.db.get_total_profit_loss()
+        logger.info(f"Total P/L: €{total_pl:.2f}")
         
         try:
             while True:

@@ -20,3 +20,7 @@ venv/
 # Logs
 logs/
 *.log
+
+# Database files
+*.db
+data/
