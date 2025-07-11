@@ -109,7 +109,7 @@ def main():
         
         # Initialize Bitvavo client
         client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
-        market_ops = MarketOperations(client)
+        market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
         
         # Find best market to trade
         market = find_best_market(market_ops)

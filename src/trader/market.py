@@ -10,10 +10,15 @@ from trader.database import TradeDatabase
 logger = logging.getLogger('trader.market')
 
 class MarketOperations:
-    def __init__(self, client: BitvavoClient):
+    def __init__(self, client: BitvavoClient, operator_id: Optional[str] = None):
         self.client = client
         self.db = TradeDatabase()
-        logger.info("MarketOperations initialized")
+        self.operator_id = operator_id
+        if self.operator_id:
+            logger.info(f"MarketOperations initialized with operatorId: {self.operator_id}")
+        else:
+            logger.info("MarketOperations initialized without operatorId (orders will not include it)")
+        # logger.info("MarketOperations initialized") # Original log line, potentially redundant
 
     def get_balance(self) -> List[Dict]:
         """Get balance for all assets"""
@@ -134,10 +139,14 @@ class MarketOperations:
         """
         logger.info(f"Placing {side} limit order: {amount} {market} @ {price}")
         try:
-            response = self.client.bitvavo.placeOrder(market, side, 'limit', {
+            order_payload = {
                 'amount': str(amount),
                 'price': str(price)
-            })
+            }
+            if self.operator_id:
+                order_payload['operatorId'] = self.operator_id
+
+            response = self.client.bitvavo.placeOrder(market, side, 'limit', order_payload)
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
         except Exception as e:
@@ -196,10 +205,14 @@ class MarketOperations:
             
             if rounded_amount != amount:
                 logger.info(f"Rounded order amount from {amount} to {rounded_amount} to match market precision")
-            
-            response = self.client.bitvavo.placeOrder(market, side, 'market', {
+
+            order_payload = {
                 'amount': str(rounded_amount)
-            })
+            }
+            if self.operator_id:
+                order_payload['operatorId'] = self.operator_id
+
+            response = self.client.bitvavo.placeOrder(market, side, 'market', order_payload)
             
             # Log full response for debugging
             logger.debug(f"API Response: {response}")

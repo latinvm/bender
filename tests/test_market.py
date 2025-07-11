@@ -80,7 +80,8 @@ def market_ops(mock_client, mock_trade_db):
     """Fixture for MarketOperations instance"""
     with patch('trader.market.TradeDatabase') as mock_db_class:
         mock_db_class.return_value = mock_trade_db
-        ops = MarketOperations(mock_client)
+        # Provide a default operator_id for most tests
+        ops = MarketOperations(mock_client, operator_id="test_operator_123")
         return ops
 
 def test_market_ops_init_with_db(mock_client):
@@ -89,10 +90,20 @@ def test_market_ops_init_with_db(mock_client):
         mock_db = Mock()
         mock_db_class.return_value = mock_db
         
-        ops = MarketOperations(mock_client)
+        ops = MarketOperations(mock_client, operator_id="test_op_init")
         
         assert hasattr(ops, 'db')
+        assert ops.operator_id == "test_op_init"
         mock_db_class.assert_called_once()
+
+def test_market_ops_init_no_operator_id(mock_client):
+    """Test MarketOperations initialization without operator_id"""
+    with patch('trader.market.TradeDatabase') as mock_db_class:
+        mock_db = Mock()
+        mock_db_class.return_value = mock_db
+
+        ops = MarketOperations(mock_client, operator_id=None)
+        assert ops.operator_id is None
 
 def test_monitor_price_with_positions(market_ops, mock_bitvavo, caplog):
     """Test price monitoring with active positions"""
@@ -184,26 +195,74 @@ def test_place_limit_order(market_ops, mock_bitvavo):
     """Test limit order placement"""
     order = market_ops.place_limit_order('BTC-EUR', 'buy', 1.0, 30000.0)
     
+    expected_payload = {'amount': '1.0', 'price': '30000.0'}
+    if market_ops.operator_id:
+        expected_payload['operatorId'] = market_ops.operator_id
+
     mock_bitvavo.placeOrder.assert_called_once_with(
-        'BTC-EUR', 'buy', 'limit',
-        {'amount': '1.0', 'price': '30000.0'}
+        'BTC-EUR', 'buy', 'limit', expected_payload
     )
     assert order['orderId'] == '12345'
     assert order['status'] == 'filled'
+
+def test_place_limit_order_no_operator_id(mock_client, mock_trade_db, mock_bitvavo):
+    """Test limit order placement when MarketOperations has no operator_id"""
+    with patch('trader.market.TradeDatabase') as mock_db_class:
+        mock_db_class.return_value = mock_trade_db
+        ops = MarketOperations(mock_client, operator_id=None) # Initialize without operator_id
+
+    order = ops.place_limit_order('BTC-EUR', 'buy', 0.5, 29000.0)
+
+    expected_payload = {'amount': '0.5', 'price': '29000.0'}
+    # operatorId should not be in the payload
+    mock_bitvavo.placeOrder.assert_called_once_with(
+        'BTC-EUR', 'buy', 'limit', expected_payload
+    )
+    assert order['orderId'] == '12345' # Assuming mock returns this
 
 def test_place_market_order(market_ops, mock_bitvavo):
     """Test market order placement"""
     order = market_ops.place_market_order('BTC-EUR', 'buy', 1.0)
     
     # Verify market validation was performed
+    mock_bitvavo.markets.assert_called_once() # This is called by get_market_info
+    mock_bitvavo.tickerPrice.assert_called_once() # This is called by get_ticker for price check
+
+    # Construct expected payload
+    # Note: amount might be rounded, but for this test input 1.0, assume it's '1.0'
+    # The actual rounding logic is complex and tested implicitly if min_base allows 1.0
+    expected_payload = {'amount': '1.0'}
+    if market_ops.operator_id:
+        expected_payload['operatorId'] = market_ops.operator_id
+
+    # Verify order placement call
+    mock_bitvavo.placeOrder.assert_called_once_with(
+        'BTC-EUR', 'buy', 'market', expected_payload
+    )
+    assert order['orderId'] == '12345'
+
+def test_place_market_order_no_operator_id(mock_client, mock_trade_db, mock_bitvavo):
+    """Test market order placement when MarketOperations has no operator_id"""
+    with patch('trader.market.TradeDatabase') as mock_db_class:
+        mock_db_class.return_value = mock_trade_db
+        ops = MarketOperations(mock_client, operator_id=None)
+
+    # Reset mocks for markets and tickerPrice as they are called in place_market_order
+    mock_bitvavo.markets.reset_mock()
+    mock_bitvavo.tickerPrice.reset_mock()
+
+    order = ops.place_market_order('BTC-EUR', 'sell', 0.1)
+
     mock_bitvavo.markets.assert_called_once()
     mock_bitvavo.tickerPrice.assert_called_once()
-    
-    # Verify order placement
-    assert mock_bitvavo.placeOrder.call_args[0][0] == 'BTC-EUR'
-    assert mock_bitvavo.placeOrder.call_args[0][1] == 'buy'
-    assert mock_bitvavo.placeOrder.call_args[0][2] == 'market'
+
+    expected_payload = {'amount': '0.1'} # Assuming 0.1 is valid and doesn't need rounding here
+    # operatorId should not be in the payload
+    mock_bitvavo.placeOrder.assert_called_once_with(
+        'BTC-EUR', 'sell', 'market', expected_payload
+    )
     assert order['orderId'] == '12345'
+
 
 def test_place_market_order_minimum_requirements(market_ops, mock_bitvavo):
     """Test market order with minimum requirements"""

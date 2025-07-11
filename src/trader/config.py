@@ -1,11 +1,12 @@
 import os
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
 class BitvavoConfig(NamedTuple):
     api_key: str
     api_secret: str
+    operator_id: Optional[str] = None
 
 class DatabaseConfig(NamedTuple):
     db_path: str
@@ -39,6 +40,7 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig]:
     # Get configuration from environment
     api_key = os.getenv('BITVAVO_API_KEY', '')
     api_secret = os.getenv('BITVAVO_API_SECRET', '')
+    operator_id = os.getenv('BITVAVO_OPERATOR_ID') # Defaults to None if not set
     db_path = os.getenv('TRADER_DB_PATH', str(data_dir / 'trades.db'))
     
-    return BitvavoConfig(api_key, api_secret), DatabaseConfig(db_path)
+    return BitvavoConfig(api_key, api_secret, operator_id), DatabaseConfig(db_path)
