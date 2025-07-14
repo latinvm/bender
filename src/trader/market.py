@@ -14,10 +14,8 @@ class MarketOperations:
         self.client = client
         self.db = TradeDatabase()
         self.operator_id = operator_id
-        if self.operator_id:
-            logger.info(f"MarketOperations initialized with operatorId: {self.operator_id}")
-        else:
-            logger.info("MarketOperations initialized without operatorId (orders will not include it)")
+        # Diagnostic logging for operator_id received
+        logger.info(f"DIAGNOSTIC: MarketOperations received operator_id: '{operator_id}'")
         # logger.info("MarketOperations initialized") # Original log line, potentially redundant
 
     def get_balance(self) -> List[Dict]:
@@ -146,6 +144,7 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
+            logger.info(f"DIAGNOSTIC: Placing limit order with payload: {order_payload}")
             response = self.client.bitvavo.placeOrder(market, side, 'limit', order_payload)
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
@@ -212,6 +211,7 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
+            logger.info(f"DIAGNOSTIC: Placing market order with payload: {order_payload}")
             response = self.client.bitvavo.placeOrder(market, side, 'market', order_payload)
             
             # Log full response for debugging

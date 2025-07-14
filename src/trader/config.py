@@ -41,6 +41,11 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig]:
     api_key = os.getenv('BITVAVO_API_KEY', '')
     api_secret = os.getenv('BITVAVO_API_SECRET', '')
     operator_id = os.getenv('BITVAVO_OPERATOR_ID') # Defaults to None if not set
+
+    # Diagnostic logging for operator_id
+    import logging
+    logging.info(f"DIAGNOSTIC: Loaded BITVAVO_OPERATOR_ID from env: '{operator_id}'")
+
     db_path = os.getenv('TRADER_DB_PATH', str(data_dir / 'trades.db'))
     
     return BitvavoConfig(api_key, api_secret, operator_id), DatabaseConfig(db_path)
