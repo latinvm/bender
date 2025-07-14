@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 class BitvavoConfig(NamedTuple):
     api_key: str
     api_secret: str
-    operator_id: Optional[str] = None
+    operator_id: Optional[int] = None
 
 class DatabaseConfig(NamedTuple):
     db_path: str
@@ -40,11 +40,10 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig]:
     # Get configuration from environment
     api_key = os.getenv('BITVAVO_API_KEY', '')
     api_secret = os.getenv('BITVAVO_API_SECRET', '')
-    operator_id = os.getenv('BITVAVO_OPERATOR_ID') # Defaults to None if not set
-
-    # Diagnostic logging for operator_id
-    import logging
-    logging.info(f"DIAGNOSTIC: Loaded BITVAVO_OPERATOR_ID from env: '{operator_id}'")
+    operator_id_str = os.getenv('BITVAVO_OPERATOR_ID')
+    operator_id = None
+    if operator_id_str and operator_id_str.isdigit():
+        operator_id = int(operator_id_str)
 
     db_path = os.getenv('TRADER_DB_PATH', str(data_dir / 'trades.db'))
     

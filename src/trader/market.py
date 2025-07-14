@@ -10,13 +10,14 @@ from trader.database import TradeDatabase
 logger = logging.getLogger('trader.market')
 
 class MarketOperations:
-    def __init__(self, client: BitvavoClient, operator_id: Optional[str] = None):
+    def __init__(self, client: BitvavoClient, operator_id: Optional[int] = None):
         self.client = client
         self.db = TradeDatabase()
         self.operator_id = operator_id
-        # Diagnostic logging for operator_id received
-        logger.info(f"DIAGNOSTIC: MarketOperations received operator_id: '{operator_id}'")
-        # logger.info("MarketOperations initialized") # Original log line, potentially redundant
+        if self.operator_id:
+            logger.info(f"MarketOperations initialized with operatorId: {self.operator_id}")
+        else:
+            logger.info("MarketOperations initialized without operatorId (orders will not include it)")
 
     def get_balance(self) -> List[Dict]:
         """Get balance for all assets"""
@@ -144,7 +145,6 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
-            logger.info(f"DIAGNOSTIC: Placing limit order with payload: {order_payload}")
             response = self.client.bitvavo.placeOrder(market, side, 'limit', order_payload)
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
@@ -211,7 +211,6 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
-            logger.info(f"DIAGNOSTIC: Placing market order with payload: {order_payload}")
             response = self.client.bitvavo.placeOrder(market, side, 'market', order_payload)
             
             # Log full response for debugging

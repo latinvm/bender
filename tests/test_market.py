@@ -81,7 +81,7 @@ def market_ops(mock_client, mock_trade_db):
     with patch('trader.market.TradeDatabase') as mock_db_class:
         mock_db_class.return_value = mock_trade_db
         # Provide a default operator_id for most tests
-        ops = MarketOperations(mock_client, operator_id="test_operator_123")
+        ops = MarketOperations(mock_client, operator_id=123456789)
         return ops
 
 def test_market_ops_init_with_db(mock_client):
@@ -90,10 +90,10 @@ def test_market_ops_init_with_db(mock_client):
         mock_db = Mock()
         mock_db_class.return_value = mock_db
         
-        ops = MarketOperations(mock_client, operator_id="test_op_init")
+        ops = MarketOperations(mock_client, operator_id=98765)
         
         assert hasattr(ops, 'db')
-        assert ops.operator_id == "test_op_init"
+        assert ops.operator_id == 98765
         mock_db_class.assert_called_once()
 
 def test_market_ops_init_no_operator_id(mock_client):

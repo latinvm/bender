@@ -110,9 +110,6 @@ def main():
         # Initialize Bitvavo client
         client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
 
-        # Diagnostic logging for operator_id before passing it
-        logger.info(f"DIAGNOSTIC: Passing operator_id to MarketOperations: '{bitvavo_config.operator_id}'")
-
         market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
         
         # Find best market to trade
