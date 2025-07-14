@@ -72,6 +72,7 @@ cp .env.example .env
 ```env
 BITVAVO_API_KEY=your_api_key
 BITVAVO_API_SECRET=your_api_secret
+BITVAVO_OPERATOR_ID=1 (64 bit integer)
 ```
 
 ## 🎮 Usage
