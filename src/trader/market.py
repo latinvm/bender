@@ -199,7 +199,7 @@ class MarketOperations:
             logger.info("Order meets minimum requirements")
             
             # Round amount to market precision
-            precision = len(str(min_base).split('.')[-1])
+            precision = market_info.get('amountPrecision', 2)
             rounded_amount = round(amount, precision)
             
             if rounded_amount != amount:

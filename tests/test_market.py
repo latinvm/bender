@@ -295,19 +295,15 @@ def test_list_alt_coins(market_ops, mock_bitvavo):
         {'market': 'BTC-EUR', 'quote': 'EUR', 'status': 'trading'},
         {'market': 'VET-BTC', 'quote': 'BTC', 'status': 'trading'}
     ]
-    
-    def mock_ticker_price(params):
-        market = params['market']
-        if market == 'VET-EUR':
-            return {'price': '0.10'}
-        elif market == 'BTC-EUR':
-            return {'price': '30000.00'}
-        return {'price': '0.0'}
-    
-    mock_bitvavo.tickerPrice.side_effect = mock_ticker_price
-    
+
+    # list_alt_coins uses ticker24h, so we mock that.
+    mock_bitvavo.ticker24h.return_value = [
+        {'market': 'VET-EUR', 'last': '0.10'},
+        {'market': 'BTC-EUR', 'last': '30000.00'},
+    ]
+
     coins = market_ops.list_alt_coins(max_price=1.0)
-    
+
     assert len(coins) == 1
     assert coins[0]['market'] == 'VET-EUR'
     assert coins[0]['price'] == 0.10
@@ -337,3 +333,35 @@ def test_test_trade_failure(market_ops, mock_bitvavo):
     
     result = market_ops.test_trade('BTC-EUR')
     assert result is False
+
+def test_place_market_order_rounding(market_ops, mock_bitvavo):
+    """Test that place_market_order correctly rounds the amount based on amountPrecision."""
+    # Mock the market info to include amountPrecision
+    mock_bitvavo.markets.return_value = [
+        {
+            'market': 'BONK-EUR',
+            'status': 'trading',
+            'base': 'BONK',
+            'quote': 'EUR',
+            'minOrderInBaseAsset': '1000',
+            'minOrderInQuoteAsset': '5.0',
+            'amountPrecision': 2  # Specify precision for rounding
+        }
+    ]
+    # Mock ticker price for BONK-EUR
+    mock_bitvavo.tickerPrice.return_value = {'market': 'BONK-EUR', 'price': '0.00001281'}
+
+    # Amount with more decimal places than allowed
+    test_amount = 429285.0452700593
+
+    # Call the method
+    market_ops.place_market_order('BONK-EUR', 'buy', test_amount)
+
+    # Verify that the amount in the payload sent to placeOrder is correctly rounded
+    expected_rounded_amount = '429285.05'
+
+    # Get the actual payload from the mock
+    actual_call_args = mock_bitvavo.placeOrder.call_args
+    actual_payload = actual_call_args[0][3]  # The payload is the 4th argument in placeOrder call
+
+    assert actual_payload['amount'] == expected_rounded_amount
