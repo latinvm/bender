@@ -131,3 +131,38 @@ def test_find_best_market_scoring(mock_market_ops):
     
     # ADA-EUR should be selected due to higher volatility and trend
     assert best_market == 'ADA-EUR'
+
+@patch('trader.main.get_config')
+@patch('trader.main.TradeDatabase')
+@patch('trader.main.BitvavoClient')
+@patch('trader.main.MarketOperations')
+@patch('trader.main.SimpleMAStrategy')
+@patch('trader.main.display_market_info')
+@patch('trader.main.find_best_market')
+def test_main_test_trade_fails(
+    mock_find_best_market,
+    mock_display_market_info,
+    mock_strategy,
+    mock_market_ops_class,
+    mock_bitvavo_client,
+    mock_db,
+    mock_get_config,
+    caplog
+):
+    """Test that the main function handles a failed test trade"""
+    # Arrange
+    mock_get_config.return_value = (Mock(), Mock())
+    mock_db.return_value.get_active_positions.return_value = []
+    mock_db.return_value.get_total_profit_loss.return_value = 0.0
+    mock_market_ops = Mock()
+    mock_market_ops.test_trade.return_value = False
+    mock_market_ops_class.return_value = mock_market_ops
+    mock_find_best_market.return_value = 'VET-EUR'
+
+    # Act
+    from trader.main import main
+    main()
+
+    # Assert
+    assert "Test trade failed - aborting strategy" in caplog.text
+    mock_strategy.assert_not_called()
