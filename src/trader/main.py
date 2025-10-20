@@ -1,12 +1,15 @@
 from typing import Dict, List
 import logging
+import argparse
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.market import MarketOperations
 from trader.logger import setup_logger
+import numpy as np
 from trader.exceptions import BitvavoError, MarketNotFoundError, APIConnectionError, AuthenticationError
-from trader.strategies import SimpleMAStrategy
+from trader.enhanced_strategy import EnhancedStrategy
 from trader.database import TradeDatabase
+from trader.backtester import Backtester
 
 # Setup logging once at the application start
 setup_logger('trader')
@@ -40,6 +43,21 @@ def display_market_info(market_ops: MarketOperations, market: str) -> None:
     except (MarketNotFoundError, APIConnectionError) as e:
         logger.error(f"Error getting market info: {str(e)}")
 
+def calculate_sharpe_ratio(returns, risk_free_rate=0.0):
+    """Calculate the Sharpe ratio for a series of returns."""
+    excess_returns = returns - risk_free_rate
+    if np.std(excess_returns) == 0:
+        return 0.0
+    return np.mean(excess_returns) / np.std(excess_returns)
+
+def calculate_sortino_ratio(returns, risk_free_rate=0.0):
+    """Calculate the Sortino ratio for a series of returns."""
+    excess_returns = returns - risk_free_rate
+    downside_returns = excess_returns[excess_returns < 0]
+    if np.std(downside_returns) == 0:
+        return 0.0
+    return np.mean(excess_returns) / np.std(downside_returns)
+
 def find_best_market(market_ops: MarketOperations) -> str:
     """Find the best market based on volume, volatility, and trend"""
     logger.info("Finding best market to trade...")
@@ -61,17 +79,32 @@ def find_best_market(market_ops: MarketOperations) -> str:
         volume = info['volume_quote']  # Volume in EUR
         trend = (info['price'] - info['open']) / info['open'] * 100
         
+        # Get historical data for Sharpe and Sortino ratios
+        candles = market_ops.get_historical_candles(market, interval='1h', limit=168) # 7 days of hourly data
+        if not candles:
+            continue
+
+        closes = np.array([float(c[4]) for c in candles])
+        returns = (closes[1:] - closes[:-1]) / closes[:-1]
+
+        sharpe_ratio = calculate_sharpe_ratio(returns)
+        sortino_ratio = calculate_sortino_ratio(returns)
+
         # Score the market
         volume_score = min(volume / 10000, 1.0)  # Normalize volume, max at €10k
         volatility_score = min(volatility / 10, 1.0)  # Normalize volatility, max at 10%
         trend_score = 0.5 + (trend / 10)  # Normalize trend, 0-1 range
-        
-        total_score = volume_score * 0.4 + volatility_score * 0.4 + trend_score * 0.2
+        sharpe_score = min(sharpe_ratio, 1.0)
+        sortino_score = min(sortino_ratio, 1.0)
+
+        total_score = (volume_score * 0.2) + (volatility_score * 0.2) + (trend_score * 0.2) + (sharpe_score * 0.2) + (sortino_score * 0.2)
         
         logger.info(f"\nAnalyzing {market}:")
         logger.info(f"Volume: €{volume:.2f}")
         logger.info(f"24h Volatility: {volatility:.1f}%")
         logger.info(f"Price Trend: {trend:+.1f}%")
+        logger.info(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+        logger.info(f"Sortino Ratio: {sortino_ratio:.2f}")
         logger.info(f"Total Score: {total_score:.2f}")
         
         if total_score > best_score:
@@ -86,66 +119,87 @@ def find_best_market(market_ops: MarketOperations) -> str:
     return best_market
 
 def main():
-    logger.info("Starting trader application")
-    
-    try:
-        # Initialize configurations
-        bitvavo_config, db_config = get_config()
-        
-        # Initialize database
-        db = TradeDatabase(db_config.db_path)
-        logger.info(f"Initialized trade database at {db_config.db_path}")
-        
-        # Show any active positions from previous runs
-        active_positions = db.get_active_positions()
-        if active_positions:
-            logger.info("Found active positions from previous session:")
-            for pos in active_positions:
-                logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
-        
-        # Show total P/L
-        total_pl = db.get_total_profit_loss()
-        logger.info(f"Total P/L from all trades: €{total_pl:.2f}")
-        
-        # Initialize Bitvavo client
-        client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
+    parser = argparse.ArgumentParser(description="Bender Trading Bot")
+    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade or backtest)")
+    parser.add_argument('--market', type=str, default='VET-EUR', help="Market to trade or backtest")
+    parser.add_argument('--start', type=str, default='2023-01-01', help="Start date for backtesting (YYYY-MM-DD)")
+    parser.add_argument('--end', type=str, default='2023-12-31', help="End date for backtesting (YYYY-MM-DD)")
+    args = parser.parse_args()
 
-        market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
+    if args.command == 'trade':
+        logger.info("Starting trader application")
         
-        # Find best market to trade
-        market = find_best_market(market_ops)
-        logger.info(f"Selected market for trading: {market}")
-        
-        # Display market information
-        display_market_info(market_ops, market)
-        
-        # Run test trade cycle
-        logger.info("Running test trade cycle...")
-        if not market_ops.test_trade(market):
-            logger.error("Test trade failed - aborting strategy")
-            return
+        try:
+            # Initialize configurations
+            bitvavo_config, db_config = get_config()
+
+            # Initialize database
+            db = TradeDatabase(db_config.db_path)
+            logger.info(f"Initialized trade database at {db_config.db_path}")
+
+            # Show any active positions from previous runs
+            active_positions = db.get_active_positions()
+            if active_positions:
+                logger.info("Found active positions from previous session:")
+                for pos in active_positions:
+                    logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
+
+            # Show total P/L
+            total_pl = db.get_total_profit_loss()
+            logger.info(f"Total P/L from all trades: €{total_pl:.2f}")
+
+            # Initialize Bitvavo client
+            client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
+
+            market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
+
+            # Find best market to trade
+            market = find_best_market(market_ops)
+            logger.info(f"Selected market for trading: {market}")
             
-        logger.info("Test trade successful - starting main strategy")
+            # Display market information
+            display_market_info(market_ops, market)
+
+            # Run test trade cycle
+            logger.info("Running test trade cycle...")
+            if not market_ops.test_trade(market):
+                logger.error("Test trade failed - aborting strategy")
+                return
+
+            logger.info("Test trade successful - starting main strategy")
+
+            # Create the enhanced strategy
+            strategy = EnhancedStrategy(
+                market_ops=market_ops,
+                market=market,
+                investment_amount=10.0,  # Full €10 investment
+            )
+
+            # Run strategy
+            strategy.run(interval=300)
+
+        except AuthenticationError as e:
+            logger.error(f"Authentication failed: {str(e)}")
+        except BitvavoError as e:
+            logger.error(f"Bitvavo API error: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            raise
+
+    elif args.command == 'backtest':
+        logger.info("Starting backtester")
+        bitvavo_config, _ = get_config()
+        client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
+        market_ops = MarketOperations(client)
         
-        # Create strategy with aggressive settings
-        strategy = SimpleMAStrategy(
+        backtester = Backtester(
             market_ops=market_ops,
-            market=market,
-            investment_amount=10.0,  # Full €10 investment
-            short_window=1,          # 1-minute short MA
-            long_window=3           # 3-minute long MA
+            strategy_class=EnhancedStrategy,
+            market=args.market,
+            start_date=args.start,
+            end_date=args.end
         )
-        
-        # Run strategy with shorter interval for faster trades
-        strategy.run(interval=30)
-            
-    except AuthenticationError as e:
-        logger.error(f"Authentication failed: {str(e)}")
-    except BitvavoError as e:
-        logger.error(f"Bitvavo API error: {str(e)}")
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise
+        backtester.run()
 
 if __name__ == "__main__":
     main()

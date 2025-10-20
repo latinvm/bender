@@ -57,8 +57,13 @@ Using my referral link above helps support Bender's development while giving you
 git clone https://github.com/yourusername/bender.git
 cd bender
 
-# Install dependencies
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+
+# Install dependencies and the trader command
 pip install -r requirements.txt
+pip install -e .
 
 # Set up your configuration
 cp .env.example .env
@@ -77,8 +82,14 @@ BITVAVO_OPERATOR_ID=1 (64 bit integer)
 
 ## 🎮 Usage
 
+To run the trading bot:
 ```bash
-python -m src.trader.main
+trader trade
+```
+
+To run a backtest:
+```bash
+trader backtest --market VET-EUR --start 2023-01-01 --end 2023-12-31
 ```
 
 ## 💡 Contributing
