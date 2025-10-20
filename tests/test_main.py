@@ -116,7 +116,28 @@ def test_find_best_market_scoring(mock_market_ops):
         {'market': 'VET-EUR', 'status': 'trading'},
         {'market': 'ADA-EUR', 'status': 'trading'}
     ]
-    
+
+    # Setup historical candles for both markets
+    historical_candles = [
+        [1672531200000, '1.0', '1.1', '0.9', '1.05', '1000'],
+        [1672534800000, '1.05', '1.15', '1.0', '1.10', '1100'],
+        [1672538400000, '1.10', '1.20', '1.05', '1.15', '1200'],
+        [1672542000000, '1.15', '1.25', '1.10', '1.20', '1300'],
+        [1672545600000, '1.20', '1.30', '1.15', '1.25', '1400'],
+        [1672549200000, '1.25', '1.35', '1.20', '1.30', '1500'],
+        [1672552800000, '1.30', '1.40', '1.25', '1.35', '1600'],
+        [1672556400000, '1.35', '1.45', '1.30', '1.40', '1700'],
+        [1672560000000, '1.40', '1.50', '1.35', '1.45', '1800'],
+        [1672563600000, '1.45', '1.55', '1.40', '1.50', '1900']
+    ]
+    mock_market_ops.get_historical_candles.return_value = historical_candles
+
+    # Mock order books with good spreads
+    mock_market_ops.get_book.return_value = {
+        'bids': [['1.000', '1000']],
+        'asks': [['1.002', '1000']]  # 0.2% spread
+    }
+
     # First market: high volume, low volatility
     mock_market_ops.get_detailed_market_info.side_effect = [
         {
@@ -134,11 +155,101 @@ def test_find_best_market_scoring(mock_market_ops):
             'open': 1.0   # 80% trend
         }
     ]
-    
+
     best_market = find_best_market(mock_market_ops)
-    
-    # ADA-EUR should be selected due to higher volatility and trend
+
+    # ADA-EUR should be selected due to higher volatility (25% weight in new scoring)
     assert best_market == 'ADA-EUR'
+
+def test_find_best_market_spread_filter(mock_market_ops):
+    """Test that markets with excessive spread are rejected"""
+    mock_market_ops.list_alt_coins.return_value = [
+        {'market': 'WIDE-EUR', 'status': 'trading'},
+        {'market': 'TIGHT-EUR', 'status': 'trading'}
+    ]
+
+    # Setup market info
+    mock_market_ops.get_detailed_market_info.side_effect = [
+        {
+            'high': 1.5,
+            'low': 1.0,
+            'volume_quote': 15000.0,
+            'price': 1.2,
+            'open': 1.1
+        },
+        {
+            'high': 1.5,
+            'low': 1.0,
+            'volume_quote': 15000.0,
+            'price': 1.2,
+            'open': 1.1
+        }
+    ]
+
+    # Setup historical candles
+    historical_candles = [
+        [1672531200000 + i*3600000, '1.0', '1.5', '1.0', '1.2', '1000']
+        for i in range(10)
+    ]
+    mock_market_ops.get_historical_candles.return_value = historical_candles
+
+    # First market: wide spread (>0.5%), second market: tight spread
+    def get_book_side_effect(market, depth):
+        if market == 'WIDE-EUR':
+            return {
+                'bids': [['1.000', '100']],
+                'asks': [['1.010', '100']]  # 1.0% spread - should be rejected
+            }
+        else:
+            return {
+                'bids': [['1.000', '100']],
+                'asks': [['1.003', '100']]  # 0.3% spread - should be accepted
+            }
+
+    mock_market_ops.get_book.side_effect = get_book_side_effect
+
+    best_market = find_best_market(mock_market_ops)
+
+    # TIGHT-EUR should be selected, WIDE-EUR rejected
+    assert best_market == 'TIGHT-EUR'
+
+def test_find_best_market_volume_spike_penalty(mock_market_ops, caplog):
+    """Test that volume spikes are detected and penalized"""
+    import logging
+    caplog.set_level(logging.INFO)
+
+    mock_market_ops.list_alt_coins.return_value = [
+        {'market': 'PUMP-EUR', 'status': 'trading'}
+    ]
+
+    # PUMP-EUR has very high volume spike (should be penalized)
+    mock_market_ops.get_detailed_market_info.return_value = {
+        'high': 1.5,
+        'low': 1.0,
+        'volume_quote': 50000.0,  # Very high current volume
+        'price': 1.2,
+        'open': 1.1
+    }
+
+    # Historical volumes are low (creating a spike pattern)
+    mock_market_ops.get_historical_candles.return_value = [
+        [1672531200000 + i*3600000, '1.0', '1.5', '1.0', '1.2', '300']  # Low hourly volume
+        for i in range(168)
+    ]
+
+    # Good spread
+    mock_market_ops.get_book.return_value = {
+        'bids': [['1.000', '100']],
+        'asks': [['1.002', '100']]
+    }
+
+    best_market = find_best_market(mock_market_ops)
+
+    # Check that penalty was applied (>5x volume spike)
+    assert 'PUMP (volume' in caplog.text or 'Penalty Applied' in caplog.text
+    # Verify volume spike was detected
+    assert 'Volume Consistency:' in caplog.text
+    assert best_market == 'PUMP-EUR'  # Still selected (it's the only option)
 
 @patch('trader.main.get_config')
 @patch('trader.main.TradeDatabase')

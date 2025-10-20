@@ -19,7 +19,13 @@ Ever wished you had a reliable companion to handle your crypto trading while you
 Bender uses a carefully crafted trading strategy designed for both safety and performance:
 
 - **Smart Entry Points**: Combines moving averages with volume analysis to identify optimal trading opportunities
-- **Risk Management**: 
+- **Intelligent Market Selection**:
+  - Multi-factor scoring system analyzing 5 key metrics
+  - Bid-ask spread filtering (rejects markets with >0.5% spread)
+  - Volume consistency checks (detects and avoids pump & dump patterns)
+  - Risk-adjusted returns analysis (Sharpe & Sortino ratios)
+  - Volatility-focused selection to maximize trading opportunities
+- **Risk Management**:
   - Implements strict stop-loss at -5% to protect your capital
   - Takes profits at +15% to secure gains
   - Spreads risk across multiple positions (maximum 3)
@@ -27,7 +33,7 @@ Bender uses a carefully crafted trading strategy designed for both safety and pe
   - Smart position sizing to optimize your investment
   - Automatic minimum order handling
   - Complete trade history tracking
-- **Conservative Approach**: 
+- **Conservative Approach**:
   - Starts with small investment amounts (€10 per trade)
   - Only enters trades when volume is increasing (reduced slippage risk)
   - Maintains detailed logs of all operations

@@ -59,11 +59,16 @@ def calculate_sortino_ratio(returns, risk_free_rate=0.0):
     return np.mean(excess_returns) / np.std(downside_returns)
 
 def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> str:
-    """Find the best market based on volume, volatility, and trend
+    """Find the best market based on volume, volatility, spread, and risk-adjusted returns
 
     Args:
         market_ops: MarketOperations instance
         max_candidates: Maximum number of markets to analyze in detail (default: 10)
+
+    Improvements:
+        - Added bid-ask spread filter (rejects >0.5% spread)
+        - Added volume consistency check (penalizes pumps/dumps)
+        - Reweighted scoring: Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
     """
     logger.info("Finding best market to trade...")
 
@@ -111,7 +116,7 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
         volume = info['volume_quote']  # Volume in EUR
         trend = (info['price'] - info['open']) / info['open'] * 100 if info['open'] > 0 else 0
 
-        # Get historical data for Sharpe and Sortino ratios
+        # Get historical data for Sharpe, Sortino ratios, and volume consistency
         try:
             candles = market_ops.get_historical_candles(market, interval='1h', limit=168) # 7 days of hourly data
             if not candles or len(candles) < 10:
@@ -123,27 +128,73 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
 
             sharpe_ratio = calculate_sharpe_ratio(returns)
             sortino_ratio = calculate_sortino_ratio(returns)
+
+            # Calculate volume consistency (7-day average vs current 24h)
+            volumes = np.array([float(c[5]) for c in candles])  # Volume is the 6th element
+            avg_7d_volume = np.mean(volumes)
+            volume_spike_ratio = volume / avg_7d_volume if avg_7d_volume > 0 else 1.0
+
         except Exception as e:
             logger.debug(f"Error calculating ratios for {market}: {str(e)}")
             sharpe_ratio = 0
             sortino_ratio = 0
+            volume_spike_ratio = 1.0
 
-        # Score the market
+        # NEW: Get bid-ask spread
+        spread_pct = 999.0  # Default to high value if we can't get spread
+        spread_score = 0.0
+        try:
+            book = market_ops.get_book(market, depth=5)
+            if book and 'bids' in book and 'asks' in book and len(book['bids']) > 0 and len(book['asks']) > 0:
+                best_bid = float(book['bids'][0][0])
+                best_ask = float(book['asks'][0][0])
+                spread_pct = ((best_ask - best_bid) / best_bid) * 100
+
+                # Spread score: 1.0 for 0% spread, 0.0 for >=0.5% spread
+                spread_score = max(0, min(1.0, 1.0 - (spread_pct / 0.5)))
+        except Exception as e:
+            logger.debug(f"Error fetching spread for {market}: {str(e)}")
+
+        # Score the market components
         volume_score = min(volume / 10000, 1.0)  # Normalize volume, max at €10k
         volatility_score = min(volatility / 10, 1.0)  # Normalize volatility, max at 10%
-        trend_score = max(0, min(1.0, 0.5 + (trend / 10)))  # Normalize trend, 0-1 range
         sharpe_score = max(0, min(sharpe_ratio, 1.0))
         sortino_score = max(0, min(sortino_ratio, 1.0))
 
-        total_score = (volume_score * 0.2) + (volatility_score * 0.2) + (trend_score * 0.2) + (sharpe_score * 0.2) + (sortino_score * 0.2)
+        # NEW: Reweighted scoring formula
+        # Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
+        total_score = (
+            (volatility_score * 0.25) +
+            (sharpe_score * 0.25) +
+            (sortino_score * 0.25) +
+            (volume_score * 0.15) +
+            (spread_score * 0.10)
+        )
+
+        # NEW: Apply volume consistency penalties
+        penalty_applied = None
+        if volume_spike_ratio > 5.0:
+            total_score *= 0.6  # 40% penalty for pump & dump pattern
+            penalty_applied = f"PUMP (volume {volume_spike_ratio:.1f}x normal)"
+        elif volume_spike_ratio < 0.3:
+            total_score *= 0.7  # 30% penalty for dying market
+            penalty_applied = f"LOW_VOLUME (volume {volume_spike_ratio:.1f}x normal)"
+
+        # Reject markets with excessive spread
+        if spread_pct > 0.5:
+            logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > 0.5%)")
+            continue
 
         logger.info(f"\nAnalyzing {market}:")
-        logger.info(f"Volume: €{volume:.2f}")
-        logger.info(f"24h Volatility: {volatility:.1f}%")
-        logger.info(f"Price Trend: {trend:+.1f}%")
-        logger.info(f"Sharpe Ratio: {sharpe_ratio:.2f}")
-        logger.info(f"Sortino Ratio: {sortino_ratio:.2f}")
-        logger.info(f"Total Score: {total_score:.2f}")
+        logger.info(f"  Volume (24h): €{volume:.2f} | Score: {volume_score:.2f}")
+        logger.info(f"  Volatility: {volatility:.1f}% | Score: {volatility_score:.2f}")
+        logger.info(f"  Sharpe Ratio: {sharpe_ratio:.2f} | Score: {sharpe_score:.2f}")
+        logger.info(f"  Sortino Ratio: {sortino_ratio:.2f} | Score: {sortino_score:.2f}")
+        logger.info(f"  Bid-Ask Spread: {spread_pct:.3f}% | Score: {spread_score:.2f}")
+        logger.info(f"  Volume Consistency: {volume_spike_ratio:.2f}x avg")
+        if penalty_applied:
+            logger.info(f"  ⚠️  Penalty Applied: {penalty_applied}")
+        logger.info(f"  Final Score: {total_score:.3f}")
 
         if total_score > best_score:
             best_score = total_score
@@ -153,7 +204,7 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
         logger.warning("No suitable market found, using default")
         return 'VET-EUR'
 
-    logger.info(f"\nSelected {best_market} with score {best_score:.2f}")
+    logger.info(f"\n🎯 Selected {best_market} with score {best_score:.3f}")
     return best_market
 
 def main():
