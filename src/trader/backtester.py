@@ -30,16 +30,16 @@ class Backtester:
         # Simulate the strategy
         for i in range(len(df)):
             historical_df = df.iloc[:i+1]
-            self.strategy.prices = historical_df['close'].tolist()
+            historical_df = self.strategy.calculate_indicators(historical_df)
 
-            if self.strategy.should_buy():
+            if self.strategy.should_buy(historical_df):
                 # Simulate buy
                 entry_price = historical_df['close'].iloc[-1]
                 self.strategy.positions[self.market] = 1 # Simulate 1 unit
                 self.strategy.entry_prices[self.market] = entry_price
                 logger.info(f"Simulated BUY at {entry_price} on {historical_df.index[-1]}")
 
-            elif self.strategy.should_sell():
+            elif self.strategy.should_sell(historical_df):
                 # Simulate sell
                 exit_price = historical_df['close'].iloc[-1]
                 entry_price = self.strategy.entry_prices[self.market]
