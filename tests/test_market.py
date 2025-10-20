@@ -105,7 +105,8 @@ def test_market_ops_init_no_operator_id(mock_client):
         ops = MarketOperations(mock_client, operator_id=None)
         assert ops.operator_id is None
 
-def test_monitor_price_with_positions(market_ops, mock_bitvavo, caplog):
+@patch('trader.market.logger')
+def test_monitor_price_with_positions(mock_logger, market_ops, mock_bitvavo):
     """Test price monitoring with active positions"""
     # Setup mock for current price
     mock_bitvavo.tickerPrice.return_value = {'price': '30000.00'}
@@ -115,11 +116,14 @@ def test_monitor_price_with_positions(market_ops, mock_bitvavo, caplog):
         market_ops.monitor_price('BTC-EUR')
     
     # Verify position and P/L information was logged
-    log_messages = [record.message for record in caplog.records]
-    assert any('BTC-EUR: €30000.00' in msg for msg in log_messages)
-    assert any('Position: 0.10000000 BTC-EUR | Entry: €28000.00 | P/L: €+200.00 (+7.14%)' in msg for msg in log_messages)
+    # Get all calls to the logger
+    log_calls = [call[0][0] for call in mock_logger.info.call_args_list]
 
-def test_monitor_price_no_positions(market_ops, mock_bitvavo, caplog):
+    assert any('BTC-EUR: €30000.00' in msg for msg in log_calls)
+    assert any('Position: 0.10000000 BTC-EUR | Entry: €28000.00 | P/L: €+200.00 (+7.14%)' in msg for msg in log_calls)
+
+@patch('trader.market.logger')
+def test_monitor_price_no_positions(mock_logger, market_ops, mock_bitvavo):
     """Test price monitoring with no active positions"""
     # Setup empty positions
     market_ops.db.get_active_positions.return_value = []
@@ -132,10 +136,11 @@ def test_monitor_price_no_positions(market_ops, mock_bitvavo, caplog):
         market_ops.monitor_price('BTC-EUR')
     
     # Verify only price was logged, no position info
-    log_messages = [record.message for record in caplog.records]
-    assert any('BTC-EUR: €30000.00' in msg for msg in log_messages)
-    assert not any('Position:' in msg for msg in log_messages)
-    assert not any('P/L:' in msg for msg in log_messages)
+    log_calls = [call[0][0] for call in mock_logger.info.call_args_list]
+
+    assert any('BTC-EUR: €30000.00' in msg for msg in log_calls)
+    assert not any('Position:' in msg for msg in log_calls)
+    assert not any('P/L:' in msg for msg in log_calls)
 
 def test_get_balance(market_ops, mock_bitvavo):
     """Test balance retrieval"""
@@ -231,7 +236,7 @@ def test_place_market_order(market_ops, mock_bitvavo):
     # Construct expected payload
     # Note: amount might be rounded, but for this test input 1.0, assume it's '1.0'
     # The actual rounding logic is complex and tested implicitly if min_base allows 1.0
-    expected_payload = {'amount': '1.0'}
+    expected_payload = {'amount': '1.00'}
     if market_ops.operator_id:
         expected_payload['operatorId'] = market_ops.operator_id
 
@@ -256,7 +261,7 @@ def test_place_market_order_no_operator_id(mock_client, mock_trade_db, mock_bitv
     mock_bitvavo.markets.assert_called_once()
     mock_bitvavo.tickerPrice.assert_called_once()
 
-    expected_payload = {'amount': '0.1'} # Assuming 0.1 is valid and doesn't need rounding here
+    expected_payload = {'amount': '0.10'} # Assuming 0.1 is valid and doesn't need rounding here
     # operatorId should not be in the payload
     mock_bitvavo.placeOrder.assert_called_once_with(
         'BTC-EUR', 'sell', 'market', expected_payload
@@ -365,3 +370,34 @@ def test_place_market_order_rounding(market_ops, mock_bitvavo):
     actual_payload = actual_call_args[0][3]  # The payload is the 4th argument in placeOrder call
 
     assert actual_payload['amount'] == expected_rounded_amount
+
+@pytest.mark.parametrize("precision, amount, expected_format", [
+    (2, 123.456, "123.46"),
+    (5, 123.456789, "123.45679"),
+    (0, 123.456, "123"),
+    (2, 123.0, "123.00")
+])
+def test_place_market_order_amount_formatting(market_ops, mock_bitvavo, precision, amount, expected_format):
+    """Test that place_market_order correctly formats the amount string based on precision."""
+    # Mock market info to provide the specified precision
+    mock_bitvavo.markets.return_value = [
+        {
+            'market': 'TEST-EUR',
+            'status': 'trading',
+            'base': 'TEST',
+            'quote': 'EUR',
+            'minOrderInBaseAsset': '1',
+            'minOrderInQuoteAsset': '1',
+            'amountPrecision': precision
+        }
+    ]
+    mock_bitvavo.tickerPrice.return_value = {'market': 'TEST-EUR', 'price': '1.0'}
+
+    # Place the order
+    market_ops.place_market_order('TEST-EUR', 'buy', amount)
+
+    # Get the payload from the mocked placeOrder call
+    actual_payload = mock_bitvavo.placeOrder.call_args[0][3]
+
+    # Verify that the 'amount' in the payload is formatted correctly
+    assert actual_payload['amount'] == expected_format

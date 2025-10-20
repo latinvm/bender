@@ -205,8 +205,11 @@ class MarketOperations:
             if rounded_amount != amount:
                 logger.info(f"Rounded order amount from {amount} to {rounded_amount} to match market precision")
 
+            # Format the amount to a string with the correct number of decimal places
+            formatted_amount = f'{rounded_amount:.{precision}f}'
+
             order_payload = {
-                'amount': str(rounded_amount)
+                'amount': formatted_amount
             }
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
