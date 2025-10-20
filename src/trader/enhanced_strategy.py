@@ -43,7 +43,7 @@ class EnhancedStrategy:
         """Determine if we should buy based on the strategy."""
         last = df.iloc[-1]
         # Buy condition: RSI < 30, MACD crossover, and price is near the lower Bollinger Band
-        if last['RSI_14'] < 30 and last['MACD_12_26_9'] > last['MACDs_12_26_9'] and last['close'] < last['BBL_20_2.0']:
+        if last['RSI_14'] < 30 and last['MACD_12_26_9'] > last['MACDs_12_26_9'] and last['close'] < last['BBL_20_2.0_2.0']:
             return True
         return False
 
@@ -51,7 +51,7 @@ class EnhancedStrategy:
         """Determine if we should sell based on the strategy."""
         last = df.iloc[-1]
         # Sell condition: RSI > 70, MACD crossunder, and price is near the upper Bollinger Band
-        if last['RSI_14'] > 70 and last['MACD_12_26_9'] < last['MACDs_12_26_9'] and last['close'] > last['BBU_20_2.0']:
+        if last['RSI_14'] > 70 and last['MACD_12_26_9'] < last['MACDs_12_26_9'] and last['close'] > last['BBU_20_2.0_2.0']:
             return True
 
         # Stop-loss and take-profit
