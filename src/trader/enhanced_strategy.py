@@ -70,7 +70,7 @@ class EnhancedStrategy:
             df = self.get_historical_data()
             df = self.calculate_indicators(df)
 
-            if self.should_buy() and self.market not in self.positions:
+            if self.should_buy(df) and self.market not in self.positions:
                 # Place buy order
                 ticker = self.market_ops.get_ticker(self.market)
                 current_price = float(ticker['price'])
@@ -81,7 +81,7 @@ class EnhancedStrategy:
                 self.db.record_trade_entry(self.market, current_price, amount)
                 logger.info(f"Buy order placed for {amount:.8f} {self.market} at €{current_price:.6f}")
 
-            elif self.should_sell() and self.market in self.positions:
+            elif self.should_sell(df) and self.market in self.positions:
                 # Place sell order
                 ticker = self.market_ops.get_ticker(self.market)
                 current_price = float(ticker['price'])
