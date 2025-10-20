@@ -271,23 +271,31 @@ class MarketOperations:
         """List all available altcoins under a certain price"""
         logger.info(f"Fetching altcoins under €{max_price}")
         try:
+            # Get all markets and their 24h tickers in one efficient call
             all_markets = self.client.bitvavo.markets({})
+            all_tickers = self.client.bitvavo.ticker24h({})
+
+            # Create a map of market -> ticker for fast lookup
+            ticker_map = {ticker['market']: ticker for ticker in all_tickers}
+
             alt_coins = []
-            
             for market in all_markets:
                 if market['quote'] == 'EUR':  # Only EUR pairs
                     try:
-                        ticker = self.client.bitvavo.tickerPrice({'market': market['market']})
-                        price = float(ticker['price'])
-                        if price <= max_price:
-                            alt_coins.append({
-                                'market': market['market'],
-                                'price': price,
-                                'status': market['status']
-                            })
-                    except Exception:
+                        # Use pre-fetched ticker data instead of individual API calls
+                        ticker = ticker_map.get(market['market'])
+                        if ticker:
+                            price = float(ticker['last'])
+                            if price <= max_price:
+                                alt_coins.append({
+                                    'market': market['market'],
+                                    'price': price,
+                                    'status': market['status']
+                                })
+                    except Exception as e:
+                        logger.debug(f"Error processing {market['market']}: {str(e)}")
                         continue
-                        
+
             return sorted(alt_coins, key=lambda x: x['price'])
         except Exception as e:
             logger.error(f"Error fetching altcoins: {str(e)}")

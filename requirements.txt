@@ -8,7 +8,7 @@ typing-extensions>=4.8.0  # For enhanced type hints
 pytz>=2023.3            # For proper timezone handling in timestamps
 
 # Database and data management
-sqlalchemy>=2.0.0       # For more robust database operations if needed in futurepandas-ta
+sqlalchemy>=2.0.0       # For more robust database operations if needed in future
 numpy
 pandas
 pandas-ta
