@@ -367,3 +367,13 @@ class MarketOperations:
         except Exception as e:
             logger.error(f"Error fetching detailed market info: {str(e)}")
             raise
+
+    def get_historical_candles(self, market: str, interval: str = '1h', limit: int = 1000) -> List:
+        """Get historical candles for a market."""
+        logger.info(f"Fetching historical candles for {market}")
+        try:
+            candles = self.client.bitvavo.candles(market, interval, {'limit': limit})
+            return candles
+        except Exception as e:
+            logger.error(f"Error fetching historical candles: {str(e)}")
+            raise APIConnectionError(f"Failed to fetch historical candles: {str(e)}") from e
