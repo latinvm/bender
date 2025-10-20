@@ -54,6 +54,14 @@ def mock_market_ops():
         'open': 1.1
     }
     
+    mock.get_historical_candles.return_value = [
+        [1672531200000, '1.1', '1.2', '1.0', '1.15', '1000'],
+        [1672534800000, '1.15', '1.3', '1.1', '1.05', '1200'],
+        [1672538400000, '1.05', '1.4', '1.0', '1.35', '1500'],
+        [1672542000000, '1.35', '1.5', '1.3', '1.25', '1800'],
+        [1672545600000, '1.25', '1.6', '1.2', '1.55', '2000'],
+    ]
+
     return mock
 
 def test_display_market_info(mock_market_ops, caplog):
@@ -136,7 +144,7 @@ def test_find_best_market_scoring(mock_market_ops):
 @patch('trader.main.TradeDatabase')
 @patch('trader.main.BitvavoClient')
 @patch('trader.main.MarketOperations')
-@patch('trader.main.SimpleMAStrategy')
+@patch('trader.main.EnhancedStrategy')
 @patch('trader.main.display_market_info')
 @patch('trader.main.find_best_market')
 def test_main_test_trade_fails(

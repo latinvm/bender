@@ -9,3 +9,7 @@ pytz>=2023.3            # For proper timezone handling in timestamps
 
 # Database and data management
 sqlalchemy>=2.0.0       # For more robust database operations if needed in future
+pandas-ta
+numpy
+pandas
+pandas-ta
