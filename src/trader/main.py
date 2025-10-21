@@ -10,6 +10,9 @@ from trader.exceptions import BitvavoError, MarketNotFoundError, APIConnectionEr
 from trader.enhanced_strategy import EnhancedStrategy
 from trader.database import TradeDatabase
 from trader.backtester import Backtester
+from trader.virtual_wallet import VirtualWallet
+from trader.virtual_market import VirtualMarketOperations
+import time
 
 # Setup logging once at the application start
 setup_logger('trader')
@@ -209,43 +212,109 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
 
 def main():
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
-    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade or backtest)")
+    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade, backtest, or virtual)")
     parser.add_argument('--market', type=str, default='VET-EUR', help="Market to trade or backtest")
     parser.add_argument('--start', type=str, default='2023-01-01', help="Start date for backtesting (YYYY-MM-DD)")
     parser.add_argument('--end', type=str, default='2023-12-31', help="End date for backtesting (YYYY-MM-DD)")
+    parser.add_argument('--virtual', action='store_true', help="Enable virtual trading mode (paper trading)")
+    parser.add_argument('--reset-virtual', action='store_true', help="Reset virtual wallet to initial balance")
+    parser.add_argument('--show-stats', action='store_true', help="Show virtual trading statistics and exit")
     args = parser.parse_args()
 
-    if args.command == 'trade':
-        logger.info("Starting trader application")
-        
+    if args.command == 'trade' or args.command == 'virtual':
+        # Enable virtual mode if command is 'virtual' or --virtual flag is set
+        virtual_mode = args.command == 'virtual' or args.virtual
+
+        if virtual_mode:
+            logger.info("Starting trader application in VIRTUAL TRADING MODE")
+            logger.info("⚠️  All trades will be simulated - no real money will be used")
+        else:
+            logger.info("Starting trader application in REAL TRADING MODE")
+            logger.info("⚠️  WARNING: Real trades will be executed with real money!")
+
         try:
             # Initialize configurations
-            bitvavo_config, db_config = get_config()
-
-            # Initialize database
-            db = TradeDatabase(db_config.db_path)
-            logger.info(f"Initialized trade database at {db_config.db_path}")
-
-            # Show any active positions from previous runs
-            active_positions = db.get_active_positions()
-            if active_positions:
-                logger.info("Found active positions from previous session:")
-                for pos in active_positions:
-                    logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
-
-            # Show total P/L
-            total_pl = db.get_total_profit_loss()
-            logger.info(f"Total P/L from all trades: €{total_pl:.2f}")
+            bitvavo_config, db_config, virtual_config = get_config()
 
             # Initialize Bitvavo client
             client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
 
-            market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
+            # Initialize market operations (real or virtual)
+            if virtual_mode:
+                # Initialize virtual wallet
+                virtual_wallet = VirtualWallet(
+                    db_path=virtual_config.virtual_db_path,
+                    initial_balance=virtual_config.initial_balance
+                )
+
+                # Handle reset if requested
+                if args.reset_virtual:
+                    logger.info("Resetting virtual wallet...")
+                    virtual_wallet.reset_wallet()
+                    logger.info(f"Virtual wallet reset to €{virtual_wallet.get_balance():.2f}")
+
+                # Show stats if requested
+                if args.show_stats:
+                    stats = virtual_wallet.get_statistics()
+                    logger.info("\n" + "="*80)
+                    logger.info("VIRTUAL TRADING STATISTICS")
+                    logger.info("="*80)
+                    logger.info(f"Current Balance:      €{stats['balance']:.2f}")
+                    logger.info(f"Initial Balance:      €{stats['initial_balance']:.2f}")
+                    logger.info(f"Total Return:         €{stats['total_return']:+.2f} ({stats['total_return_pct']:+.2f}%)")
+                    logger.info(f"Total Trades:         {stats['total_trades']}")
+                    logger.info(f"Winning Trades:       {stats['winning_trades']}")
+                    logger.info(f"Losing Trades:        {stats['losing_trades']}")
+                    logger.info(f"Win Rate:             {stats['win_rate']:.1f}%")
+                    logger.info(f"Avg P/L per Trade:    €{stats['avg_profit_loss']:+.2f}")
+                    logger.info(f"Best Trade:           €{stats['max_profit']:+.2f}")
+                    logger.info(f"Worst Trade:          €{stats['max_loss']:+.2f}")
+                    logger.info("="*80)
+
+                    # Show recent trades
+                    recent_trades = virtual_wallet.get_trade_history(limit=10)
+                    if recent_trades:
+                        logger.info("\nRecent Trades (Last 10):")
+                        logger.info("-"*80)
+                        for trade in recent_trades:
+                            status_symbol = "✓" if trade['status'] == 'CLOSED' else "○"
+                            if trade['status'] == 'CLOSED':
+                                logger.info(f"{status_symbol} {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f} → €{trade['exit_price']:.6f} | P/L: €{trade['profit_loss']:+.2f} ({trade['profit_loss_pct']:+.2f}%)")
+                            else:
+                                logger.info(f"{status_symbol} {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f} [ACTIVE]")
+                    return
+
+                # Initialize virtual market operations
+                market_ops = VirtualMarketOperations(
+                    client=client,
+                    virtual_wallet=virtual_wallet,
+                    operator_id=bitvavo_config.operator_id,
+                    trading_fee_pct=virtual_config.trading_fee_pct
+                )
+
+                logger.info(f"Virtual wallet initialized with €{virtual_wallet.get_balance():.2f}")
+            else:
+                # Real trading mode
+                db = TradeDatabase(db_config.db_path)
+                logger.info(f"Initialized trade database at {db_config.db_path}")
+
+                # Show any active positions from previous runs
+                active_positions = db.get_active_positions()
+                if active_positions:
+                    logger.info("Found active positions from previous session:")
+                    for pos in active_positions:
+                        logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
+
+                # Show total P/L
+                total_pl = db.get_total_profit_loss()
+                logger.info(f"Total P/L from all trades: €{total_pl:.2f}")
+
+                market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
             # Find best market to trade
             market = find_best_market(market_ops)
             logger.info(f"Selected market for trading: {market}")
-            
+
             # Display market information
             display_market_info(market_ops, market)
 
@@ -264,6 +333,28 @@ def main():
                 investment_amount=10.0,  # Full €10 investment
             )
 
+            # If virtual mode, wrap the strategy execution with periodic portfolio updates
+            if virtual_mode:
+                logger.info("Starting strategy with periodic portfolio updates every 5 minutes...")
+                # Run strategy in a modified loop with portfolio updates
+                import threading
+
+                def show_portfolio_periodically():
+                    """Show portfolio summary every 5 minutes"""
+                    while True:
+                        time.sleep(300)  # 5 minutes
+                        try:
+                            market_ops.show_portfolio_summary()
+                        except Exception as e:
+                            logger.error(f"Error showing portfolio: {e}")
+
+                # Start portfolio monitoring thread
+                portfolio_thread = threading.Thread(target=show_portfolio_periodically, daemon=True)
+                portfolio_thread.start()
+
+                # Show initial portfolio
+                market_ops.show_portfolio_summary()
+
             # Run strategy
             strategy.run(interval=300)
 
@@ -277,10 +368,10 @@ def main():
 
     elif args.command == 'backtest':
         logger.info("Starting backtester")
-        bitvavo_config, _ = get_config()
+        bitvavo_config, _, _ = get_config()
         client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
         market_ops = MarketOperations(client)
-        
+
         backtester = Backtester(
             market_ops=market_ops,
             strategy_class=EnhancedStrategy,

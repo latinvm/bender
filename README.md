@@ -88,12 +88,43 @@ BITVAVO_OPERATOR_ID=1 (64 bit integer)
 
 ## 🎮 Usage
 
-To run the trading bot:
+### Virtual Trading (Paper Trading - Recommended for Testing!)
+
+Test your strategies with virtual money using real Bitvavo market data:
+
+```bash
+# Start virtual trading (uses real market data, virtual money)
+trader virtual
+
+# Or use the --virtual flag with trade command
+trader trade --virtual
+
+# Show virtual trading statistics
+trader trade --show-stats
+
+# Reset virtual wallet to initial balance
+trader trade --reset-virtual
+```
+
+**Why Use Virtual Trading?**
+- Test strategies risk-free with simulated trades
+- Uses real-time Bitvavo market data
+- Separate database tracks all virtual trades
+- Periodic portfolio updates showing P/L per position
+- Perfect for learning and strategy optimization
+
+### Real Trading
+
+To run the trading bot with real money:
 ```bash
 trader trade
 ```
 
-To run a backtest:
+⚠️ **WARNING**: This uses real money! Test with virtual trading first.
+
+### Backtesting
+
+To run a backtest on historical data:
 ```bash
 trader backtest --market VET-EUR --start 2023-01-01 --end 2023-12-31
 ```
