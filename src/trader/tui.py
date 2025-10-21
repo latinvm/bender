@@ -138,43 +138,41 @@ class BenderTUI(App):
     }
 
     #balance-panel {
-        height: 5;
+        height: 4;
         border: solid $primary;
         padding: 1;
         margin: 1;
         background: $surface;
     }
 
-    #main-container {
-        height: 1fr;
-        margin: 0 1;
-    }
-
     #positions-panel {
         border: solid $accent;
         padding: 1;
         height: 1fr;
+        min-height: 10;
+        margin: 0 1 1 1;
         background: $surface;
         overflow-y: auto;
     }
 
-    #right-sidebar {
-        width: 40;
-        height: 1fr;
+    #bottom-container {
+        height: 14;
+        margin: 0 1 1 1;
     }
 
     #stats-panel {
         border: solid $secondary;
         padding: 1;
-        height: 14;
-        margin-bottom: 1;
+        width: 50%;
+        height: 100%;
         background: $surface;
     }
 
     #activity-panel {
         border: solid $success;
         padding: 1;
-        height: 1fr;
+        width: 50%;
+        height: 100%;
         background: $surface;
         overflow-y: auto;
     }
@@ -197,12 +195,11 @@ class BenderTUI(App):
         yield Header(show_clock=True)
         yield Static(f"🤖 Bender Trading Bot - {mode} MODE", id="title")
         yield BalancePanel(id="balance-panel")
+        yield PositionsPanel(id="positions-panel")
 
-        with Horizontal(id="main-container"):
-            yield PositionsPanel(id="positions-panel")
-            with Vertical(id="right-sidebar"):
-                yield StatsPanel(id="stats-panel")
-                yield ActivityPanel(id="activity-panel")
+        with Horizontal(id="bottom-container"):
+            yield StatsPanel(id="stats-panel")
+            yield ActivityPanel(id="activity-panel")
 
         yield Footer()
 
