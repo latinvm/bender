@@ -1,12 +1,11 @@
 """Terminal UI for Bender Trading Bot using Textual"""
 
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Static, DataTable, Log
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.widgets import Header, Footer, Static, DataTable, RichLog
 from textual.reactive import reactive
 from datetime import datetime
 from typing import Dict, List, Optional
-import asyncio
 from trader.virtual_wallet import VirtualWallet
 from trader.config import get_config
 
@@ -18,43 +17,44 @@ class BalancePanel(Static):
     initial_balance = reactive(0.0)
     total_pl = reactive(0.0)
     total_pl_pct = reactive(0.0)
+    total_invested = reactive(0.0)
 
     def render(self) -> str:
         pl_sign = "+" if self.total_pl >= 0 else ""
         pl_color = "green" if self.total_pl >= 0 else "red"
 
-        return f"""[bold]💰 Balance:[/bold] €{self.balance:.2f}
-[bold]📊 Total P/L:[/bold] [{pl_color}]{pl_sign}€{self.total_pl:.2f} ({pl_sign}{self.total_pl_pct:.2f}%)[/{pl_color}]
-[bold]🏦 Initial:[/bold] €{self.initial_balance:.2f}"""
+        total_value = self.balance + self.total_invested
+
+        return f"""[b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Total:[/b] €{total_value:.2f}
+[b]Total P/L:[/b] [{pl_color}]{pl_sign}€{self.total_pl:.2f} ({pl_sign}{self.total_pl_pct:.2f}%)[/{pl_color}]  |  [b]Initial:[/b] €{self.initial_balance:.2f}"""
 
 
-class PositionsTable(Static):
-    """Display active trading positions"""
+class PositionsPanel(Static):
+    """Display active trading positions as formatted text"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.positions: List[Dict] = []
-
-    def compose(self) -> ComposeResult:
-        yield DataTable()
-
-    def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("Market", "Amount", "Entry Price", "Current Price", "P/L %", "P/L €")
-        table.cursor_type = "row"
+        self.prices: Dict[str, float] = {}
 
     def update_positions(self, positions: List[Dict], prices: Dict[str, float]) -> None:
-        """Update the positions table with current data"""
-        table = self.query_one(DataTable)
-        table.clear()
-
+        """Update positions data"""
         self.positions = positions
+        self.prices = prices
+        self.refresh()
 
-        for pos in positions:
+    def render(self) -> str:
+        if not self.positions:
+            return "[dim]No active positions[/dim]"
+
+        lines = ["[b]Market      Amount        Entry         Current       P/L %        P/L €[/b]"]
+        lines.append("─" * 76)
+
+        for pos in self.positions:
             market = pos['market']
             amount = pos['amount']
             entry_price = pos['entry_price']
-            current_price = prices.get(market, entry_price)
+            current_price = self.prices.get(market, entry_price)
 
             # Calculate P/L
             pl_pct = ((current_price - entry_price) / entry_price) * 100
@@ -64,14 +64,13 @@ class PositionsTable(Static):
             pl_color = "green" if pl_pct >= 0 else "red"
             pl_sign = "+" if pl_pct >= 0 else ""
 
-            table.add_row(
-                market,
-                f"{amount:.2f}",
-                f"€{entry_price:.6f}",
-                f"€{current_price:.6f}",
-                f"[{pl_color}]{pl_sign}{pl_pct:.2f}%[/{pl_color}]",
-                f"[{pl_color}]{pl_sign}€{pl_eur:.2f}[/{pl_color}]"
-            )
+            # Format market name (fixed width)
+            market_short = market.replace('-EUR', '').ljust(8)
+
+            line = f"{market_short}  {amount:>12.2f}  €{entry_price:>10.6f}  €{current_price:>10.6f}  [{pl_color}]{pl_sign}{pl_pct:>6.2f}%[/{pl_color}]  [{pl_color}]{pl_sign}€{pl_eur:>7.2f}[/{pl_color}]"
+            lines.append(line)
+
+        return "\n".join(lines)
 
 
 class StatsPanel(Static):
@@ -86,26 +85,38 @@ class StatsPanel(Static):
     def render(self) -> str:
         win_color = "green" if self.win_rate >= 50 else "yellow" if self.win_rate >= 40 else "red"
 
-        return f"""[bold]📈 Trading Statistics[/bold]
-━━━━━━━━━━━━━━━━━━━━━━
-Total Trades:    {self.total_trades}
-Winning Trades:  [{win_color}]{self.winning_trades}[/{win_color}]
-Losing Trades:   {self.losing_trades}
-Win Rate:        [{win_color}]{self.win_rate:.1f}%[/{win_color}]
-Avg P/L:         €{self.avg_pl:.2f}"""
+        return f"""[b]Trading Statistics[/b]
+{'─' * 30}
+Total Trades:     {self.total_trades}
+Winning Trades:   [green]{self.winning_trades}[/green]
+Losing Trades:    [red]{self.losing_trades}[/red]
+Win Rate:         [{win_color}]{self.win_rate:.1f}%[/{win_color}]
+Avg P/L:          €{self.avg_pl:.2f}"""
 
 
-class ActivityLog(Static):
-    """Display recent trading activity"""
+class ActivityPanel(Static):
+    """Display recent trading activity using Static instead of RichLog"""
 
-    def compose(self) -> ComposeResult:
-        yield Log(highlight=True, auto_scroll=True)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.messages: List[str] = []
+        self.max_messages = 10
 
-    def add_activity(self, message: str) -> None:
+    def add_message(self, message: str) -> None:
         """Add a new activity message"""
         timestamp = datetime.now().strftime("%H:%M:%S")
-        log = self.query_one(Log)
-        log.write_line(f"[dim]{timestamp}[/dim] {message}")
+        self.messages.append(f"[dim]{timestamp}[/dim] {message}")
+
+        # Keep only last N messages
+        if len(self.messages) > self.max_messages:
+            self.messages = self.messages[-self.max_messages:]
+
+        self.refresh()
+
+    def render(self) -> str:
+        if not self.messages:
+            return "[dim]No activity yet[/dim]"
+        return "\n".join(self.messages)
 
 
 class BenderTUI(App):
@@ -116,36 +127,45 @@ class BenderTUI(App):
         background: $surface;
     }
 
+    #title {
+        height: 1;
+        content-align: center middle;
+        text-style: bold;
+    }
+
     #balance-panel {
-        height: 5;
+        height: 4;
         border: solid $primary;
         padding: 1;
         margin: 1;
     }
 
-    #positions-container {
+    #main-container {
         height: 1fr;
+        margin: 0 1;
+    }
+
+    #positions-panel {
         border: solid $accent;
         padding: 1;
-        margin: 1;
+        height: 1fr;
+    }
+
+    #right-sidebar {
+        width: 35;
     }
 
     #stats-panel {
-        width: 30;
         border: solid $secondary;
         padding: 1;
-        margin: 1;
+        height: 12;
+        margin-bottom: 1;
     }
 
-    #activity-log {
-        height: 15;
+    #activity-panel {
         border: solid $success;
         padding: 1;
-        margin: 1;
-    }
-
-    DataTable {
-        height: 100%;
+        height: 1fr;
     }
     """
 
@@ -164,19 +184,15 @@ class BenderTUI(App):
         """Create child widgets"""
         mode = "VIRTUAL" if self.virtual_mode else "REAL"
         yield Header(show_clock=True)
-        yield Container(
-            Static(f"[bold]🤖 Bender Trading Bot - {mode} MODE[/bold]", id="title"),
-            BalancePanel(id="balance-panel"),
-            Horizontal(
-                Vertical(
-                    Static("[bold]📊 Active Positions[/bold]"),
-                    PositionsTable(id="positions-table"),
-                    id="positions-container"
-                ),
-                StatsPanel(id="stats-panel"),
-            ),
-            ActivityLog(id="activity-log"),
-        )
+        yield Static(f"🤖 Bender Trading Bot - {mode} MODE", id="title")
+        yield BalancePanel(id="balance-panel")
+
+        with Horizontal(id="main-container"):
+            yield PositionsPanel(id="positions-panel")
+            with Vertical(id="right-sidebar"):
+                yield StatsPanel(id="stats-panel")
+                yield ActivityPanel(id="activity-panel")
+
         yield Footer()
 
     def on_mount(self) -> None:
@@ -190,8 +206,8 @@ class BenderTUI(App):
             )
 
         # Log startup
-        activity = self.query_one(ActivityLog)
-        activity.add_activity("[bold green]✓[/bold green] Bender TUI started")
+        activity = self.query_one("#activity-panel", ActivityPanel)
+        activity.add_message("[green]✓[/green] Bender TUI started")
 
         # Start update loop
         self.set_interval(self.update_interval, self.update_data)
@@ -214,21 +230,22 @@ class BenderTUI(App):
             stats = self.wallet.get_statistics()
             balance_panel.total_pl = stats['total_realized_pl']
 
+            # Get active positions
+            positions = self.wallet.get_active_positions()
+
+            # Calculate total invested in positions
+            total_invested = sum(pos['entry_price'] * pos['amount'] for pos in positions)
+            balance_panel.total_invested = total_invested
+
             # Calculate total P/L percentage
+            total_value = balance_panel.balance + total_invested
             if balance_panel.initial_balance > 0:
-                total_value = balance_panel.balance + sum(
-                    pos['entry_price'] * pos['amount']
-                    for pos in self.wallet.get_active_positions()
-                )
                 balance_panel.total_pl_pct = ((total_value - balance_panel.initial_balance) / balance_panel.initial_balance) * 100
 
-            # Update positions
-            positions = self.wallet.get_active_positions()
-            positions_table = self.query_one("#positions-table", PositionsTable)
-
-            # Get current prices (for now use entry prices - we'll improve this)
+            # Update positions (using entry prices for now - could fetch live prices)
+            positions_panel = self.query_one("#positions-panel", PositionsPanel)
             prices = {pos['market']: pos['entry_price'] for pos in positions}
-            positions_table.update_positions(positions, prices)
+            positions_panel.update_positions(positions, prices)
 
             # Update stats
             stats_panel = self.query_one("#stats-panel", StatsPanel)
@@ -239,14 +256,14 @@ class BenderTUI(App):
             stats_panel.avg_pl = stats['avg_profit_loss']
 
         except Exception as e:
-            activity = self.query_one(ActivityLog)
-            activity.add_activity(f"[bold red]✗[/bold red] Error updating data: {str(e)}")
+            activity = self.query_one("#activity-panel", ActivityPanel)
+            activity.add_message(f"[red]✗[/red] Error: {str(e)}")
 
     def action_refresh(self) -> None:
         """Manually refresh data"""
         self.update_data()
-        activity = self.query_one(ActivityLog)
-        activity.add_activity("[bold blue]🔄[/bold blue] Data refreshed")
+        activity = self.query_one("#activity-panel", ActivityPanel)
+        activity.add_message("[blue]🔄[/blue] Data refreshed")
 
     def action_quit(self) -> None:
         """Quit the application"""
