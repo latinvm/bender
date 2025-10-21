@@ -18,25 +18,56 @@ Ever wished you had a reliable companion to handle your crypto trading while you
 
 Bender uses a carefully crafted trading strategy designed for both safety and performance:
 
-- **Smart Entry Points**: Combines moving averages with volume analysis to identify optimal trading opportunities
-- **Intelligent Market Selection**:
-  - Multi-factor scoring system analyzing 5 key metrics
-  - Bid-ask spread filtering (rejects markets with >0.5% spread)
-  - Volume consistency checks (detects and avoids pump & dump patterns)
-  - Risk-adjusted returns analysis (Sharpe & Sortino ratios)
-  - Volatility-focused selection to maximize trading opportunities
-- **Risk Management**:
-  - Implements strict stop-loss at -5% to protect your capital
-  - Takes profits at +15% to secure gains
-  - Spreads risk across multiple positions (maximum 3)
-- **Portfolio Management**:
-  - Smart position sizing to optimize your investment
-  - Automatic minimum order handling
-  - Complete trade history tracking
-- **Conservative Approach**:
-  - Starts with small investment amounts (€10 per trade)
-  - Only enters trades when volume is increasing (reduced slippage risk)
-  - Maintains detailed logs of all operations
+#### 🎯 Multi-Signal Buy Strategy
+
+Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. This gives more opportunities while maintaining quality:
+
+**Signal 1: Strong Oversold (RSI < 40)**
+- **What it means**: The price has dropped significantly and is likely to bounce back
+- **Think of it as**: A rubber band stretched down - it wants to snap back up
+- **Example**: `BOME-EUR: RSI 24.79 → Strong Oversold! ✓ BUY`
+
+**Signal 2: Moderate Oversold + Momentum (RSI < 55 AND MACD > Signal)**
+- **What it means**: The price dropped somewhat AND momentum is turning positive
+- **Think of it as**: A ball rolling downhill that's starting to slow and reverse
+- **Example**: `DOGS-EUR: RSI 38.28, MACD crossing up → Moderate + Momentum! ✓ BUY`
+
+**Signal 3: Near Support + Momentum (Price < Lower BB × 1.01 AND MACD ≈ Signal)**
+- **What it means**: Price hit a support level (floor) and momentum is about to turn
+- **Think of it as**: A basketball hitting the floor - about to bounce
+- **Example**: `FLOKI-EUR: At support, MACD crossing → Near Support! ✓ BUY`
+
+#### 🛡️ Sell Strategy
+
+**Technical Sell Signal (RSI > 60 AND MACD < Signal)**
+- Price is overbought AND momentum is turning negative
+- Exits before major reversals
+
+**Automatic Risk Controls**
+- **Stop-Loss**: Sells at -5% to protect your capital
+- **Take-Profit**: Sells at +15% to secure gains
+
+#### 🎲 Intelligent Market Selection
+
+- **Multi-factor scoring system** analyzing 5 key metrics
+- **Bid-ask spread filtering** (rejects markets with >0.5% spread)
+- **Volume consistency checks** (detects and avoids pump & dump patterns)
+- **Risk-adjusted returns analysis** (Sharpe & Sortino ratios)
+- **Volatility-focused selection** to maximize trading opportunities
+
+#### 💼 Portfolio Management
+
+- **Multi-market trading**: Runs 3 markets simultaneously in virtual mode
+- **Smart position sizing**: €10 per position for controlled risk
+- **Position tracking**: Real-time P/L monitoring per position
+- **Automatic minimum order handling**
+- **Complete trade history** with statistics
+
+#### 🔄 Restart-Safe Design
+
+- **Resumes with open positions**: Safely restarts without losing track of trades
+- **Position recovery**: Automatically loads existing positions on startup
+- **Continuous monitoring**: Checks sell conditions on all open positions
 
 ## 🚀 Getting Started
 
