@@ -44,10 +44,13 @@ class PositionsPanel(Static):
         self.refresh()
 
     def render(self) -> str:
-        if not self.positions:
-            return "[dim]No active positions[/dim]"
+        header = "[b]Active Positions[/b]\n" + "─" * 76 + "\n"
 
-        lines = ["[b]Market      Amount        Entry         Current       P/L %        P/L €[/b]"]
+        if not self.positions:
+            return header + "[dim]No active positions[/dim]"
+
+        lines = [header]
+        lines.append("[b]Market      Amount        Entry         Current       P/L %        P/L €[/b]")
         lines.append("─" * 76)
 
         for pos in self.positions:
@@ -114,9 +117,10 @@ class ActivityPanel(Static):
         self.refresh()
 
     def render(self) -> str:
+        header = "[b]Recent Activity[/b]\n" + "─" * 30 + "\n"
         if not self.messages:
-            return "[dim]No activity yet[/dim]"
-        return "\n".join(self.messages)
+            return header + "[dim]No activity yet[/dim]"
+        return header + "\n".join(self.messages)
 
 
 class BenderTUI(App):
@@ -134,10 +138,11 @@ class BenderTUI(App):
     }
 
     #balance-panel {
-        height: 4;
+        height: 5;
         border: solid $primary;
         padding: 1;
         margin: 1;
+        background: $surface;
     }
 
     #main-container {
@@ -149,23 +154,29 @@ class BenderTUI(App):
         border: solid $accent;
         padding: 1;
         height: 1fr;
+        background: $surface;
+        overflow-y: auto;
     }
 
     #right-sidebar {
-        width: 35;
+        width: 40;
+        height: 1fr;
     }
 
     #stats-panel {
         border: solid $secondary;
         padding: 1;
-        height: 12;
+        height: 14;
         margin-bottom: 1;
+        background: $surface;
     }
 
     #activity-panel {
         border: solid $success;
         padding: 1;
         height: 1fr;
+        background: $surface;
+        overflow-y: auto;
     }
     """
 
