@@ -10,17 +10,19 @@ logger = logging.getLogger('trader.multi_market')
 class MultiMarketStrategy:
     """Run trading strategies across multiple markets simultaneously"""
 
-    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0):
+    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0, virtual_wallet=None):
         """Initialize multi-market strategy
 
         Args:
             market_ops: Market operations instance
             markets: List of market symbols to trade (e.g., ['FLOKI-EUR', 'PEPE-EUR'])
             investment_per_market: Investment amount per market (default: €10)
+            virtual_wallet: Optional VirtualWallet instance for paper trading
         """
         self.market_ops = market_ops
         self.markets = markets
         self.investment_per_market = investment_per_market
+        self.virtual_wallet = virtual_wallet
 
         # Create a strategy instance for each market
         self.strategies: Dict[str, EnhancedStrategy] = {}
@@ -29,7 +31,8 @@ class MultiMarketStrategy:
             self.strategies[market] = EnhancedStrategy(
                 market_ops=market_ops,
                 market=market,
-                investment_amount=investment_per_market
+                investment_amount=investment_per_market,
+                virtual_wallet=virtual_wallet
             )
 
         logger.info(f"MultiMarketStrategy initialized with {len(markets)} markets")

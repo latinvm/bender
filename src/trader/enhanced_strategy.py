@@ -8,16 +8,22 @@ from trader.database import TradeDatabase
 logger = logging.getLogger('trader.enhanced_strategy')
 
 class EnhancedStrategy:
-    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0):
+    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None):
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
         self.db = TradeDatabase()
+        self.virtual_wallet = virtual_wallet
         self.positions = {}
         self.entry_prices = {}
 
         # Load active positions
-        active_positions = self.db.get_active_positions()
+        # In virtual mode, load from virtual wallet; otherwise load from regular database
+        if virtual_wallet is not None:
+            active_positions = virtual_wallet.get_active_positions()
+        else:
+            active_positions = self.db.get_active_positions()
+
         for pos in active_positions:
             self.positions[pos['market']] = pos['amount']
             self.entry_prices[pos['market']] = pos['entry_price']

@@ -354,13 +354,15 @@ def main():
             strategy_interval = 60 if virtual_mode else 300
 
             # Create strategy based on number of markets
+            # Pass virtual_wallet to strategies when in virtual mode
             if len(markets) > 1:
                 # Multi-market strategy
                 logger.info(f"Using multi-market strategy with {len(markets)} markets")
                 strategy = MultiMarketStrategy(
                     market_ops=market_ops,
                     markets=markets,
-                    investment_per_market=10.0
+                    investment_per_market=10.0,
+                    virtual_wallet=virtual_wallet if virtual_mode else None
                 )
             else:
                 # Single market strategy
@@ -368,7 +370,8 @@ def main():
                 strategy = EnhancedStrategy(
                     market_ops=market_ops,
                     market=markets[0],
-                    investment_amount=10.0
+                    investment_amount=10.0,
+                    virtual_wallet=virtual_wallet if virtual_mode else None
                 )
 
             # If virtual mode, wrap the strategy execution with periodic portfolio updates
