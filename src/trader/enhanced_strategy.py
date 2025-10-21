@@ -42,25 +42,85 @@ class EnhancedStrategy:
     def should_buy(self, df: pd.DataFrame) -> bool:
         """Determine if we should buy based on the strategy."""
         last = df.iloc[-1]
-        # Buy condition: RSI < 30, MACD crossover, and price is near the lower Bollinger Band
-        if last['RSI_14'] < 30 and last['MACD_12_26_9'] > last['MACDs_12_26_9'] and last['close'] < last['BBL_20_2.0_2.0']:
+
+        # Log current indicators
+        rsi = last['RSI_14']
+        macd = last['MACD_12_26_9']
+        macd_signal = last['MACDs_12_26_9']
+        price = last['close']
+        lower_bb = last['BBL_20_2.0_2.0']
+
+        logger.info(f"Buy check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Lower BB: €{lower_bb:.6f}")
+
+        # MULTI-SIGNAL Strategy: Multiple ways to trigger a buy
+        # This generates more opportunities while maintaining quality
+
+        # Signal 1: Strong oversold (high confidence)
+        strong_oversold = rsi < 40
+
+        # Signal 2: Moderate oversold + bullish momentum
+        moderate_oversold_with_momentum = (rsi < 55) and (macd > macd_signal)
+
+        # Signal 3: Price near support with momentum
+        near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal - 0.000001)
+
+        logger.info(f"  Signal 1 - Strong Oversold (RSI < 40): {strong_oversold}")
+        logger.info(f"  Signal 2 - Moderate + Momentum (RSI < 55 + MACD>Signal): {moderate_oversold_with_momentum}")
+        logger.info(f"  Signal 3 - Near Support + Momentum: {near_support_with_momentum}")
+
+        # Trigger buy if ANY signal is met
+        if strong_oversold:
+            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Strong Oversold)")
             return True
+        elif moderate_oversold_with_momentum:
+            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Moderate Oversold + Momentum)")
+            return True
+        elif near_support_with_momentum:
+            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Near Support + Momentum)")
+            return True
+
         return False
 
     def should_sell(self, df: pd.DataFrame) -> bool:
         """Determine if we should sell based on the strategy."""
         last = df.iloc[-1]
-        # Sell condition: RSI > 70, MACD crossunder, and price is near the upper Bollinger Band
-        if last['RSI_14'] > 70 and last['MACD_12_26_9'] < last['MACDs_12_26_9'] and last['close'] > last['BBU_20_2.0_2.0']:
+
+        # Check if we have a position
+        if self.market not in self.positions:
+            return False
+
+        # Log current indicators
+        rsi = last['RSI_14']
+        macd = last['MACD_12_26_9']
+        macd_signal = last['MACDs_12_26_9']
+        price = last['close']
+        upper_bb = last['BBU_20_2.0_2.0']
+
+        entry_price = self.entry_prices[self.market]
+        profit_percentage = ((price - entry_price) / entry_price) * 100
+
+        logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
+        logger.info(f"  Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
+
+        # RELAXED Sell condition: RSI > 60 AND MACD bearish
+        # This will exit positions earlier before major reversals
+        rsi_overbought = rsi > 60  # Relaxed from 70 to 60
+        macd_bearish = macd < macd_signal
+        # Removed the upper BB requirement for more signals
+
+        logger.info(f"  RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
+
+        if rsi_overbought and macd_bearish:
+            logger.info("  ✓ SELL SIGNAL TRIGGERED (Technical)")
             return True
 
         # Stop-loss and take-profit
-        if self.market in self.positions:
-            entry_price = self.entry_prices[self.market]
-            current_price = last['close']
-            profit_percentage = ((current_price - entry_price) / entry_price) * 100
-            if profit_percentage >= 15.0 or profit_percentage <= -5.0:
-                return True
+        if profit_percentage >= 15.0:
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED (Take Profit: {profit_percentage:+.2f}%)")
+            return True
+        elif profit_percentage <= -5.0:
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED (Stop Loss: {profit_percentage:+.2f}%)")
+            return True
 
         return False
 

@@ -12,6 +12,7 @@ from trader.database import TradeDatabase
 from trader.backtester import Backtester
 from trader.virtual_wallet import VirtualWallet
 from trader.virtual_market import VirtualMarketOperations
+from trader.multi_market_strategy import MultiMarketStrategy
 import time
 
 # Setup logging once at the application start
@@ -61,19 +62,23 @@ def calculate_sortino_ratio(returns, risk_free_rate=0.0):
         return 0.0
     return np.mean(excess_returns) / np.std(downside_returns)
 
-def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> str:
-    """Find the best market based on volume, volatility, spread, and risk-adjusted returns
+def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10) -> List[str]:
+    """Find the best markets based on volume, volatility, spread, and risk-adjusted returns
 
     Args:
         market_ops: MarketOperations instance
+        top_n: Number of top markets to return (default: 3)
         max_candidates: Maximum number of markets to analyze in detail (default: 10)
+
+    Returns:
+        List of top market symbols (e.g., ['FLOKI-EUR', 'PEPE-EUR', 'SHIB-EUR'])
 
     Improvements:
         - Added bid-ask spread filter (rejects >0.5% spread)
         - Added volume consistency check (penalizes pumps/dumps)
         - Reweighted scoring: Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
     """
-    logger.info("Finding best market to trade...")
+    logger.info(f"Finding top {top_n} markets to trade...")
 
     # Get all altcoins under €10
     logger.info("Fetching altcoin list...")
@@ -81,8 +86,8 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
     logger.info(f"Found {len(alt_coins)} altcoins under €10")
 
     if not alt_coins:
-        logger.warning("No altcoins found, using default")
-        return 'VET-EUR'
+        logger.warning("No altcoins found, using defaults")
+        return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR'][:top_n]
 
     # Pre-filter by getting 24h ticker data (fast) and select top candidates by volume
     logger.info(f"Pre-filtering to top {max_candidates} candidates by volume...")
@@ -107,8 +112,8 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
     candidates = sorted(candidates, key=lambda x: x['volume_quote'], reverse=True)[:max_candidates]
     logger.info(f"Analyzing top {len(candidates)} markets in detail...")
 
-    best_market = None
-    best_score = 0
+    # Store all scored markets
+    scored_markets = []
 
     for candidate in candidates:
         market = candidate['market']
@@ -132,10 +137,15 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
             sharpe_ratio = calculate_sharpe_ratio(returns)
             sortino_ratio = calculate_sortino_ratio(returns)
 
-            # Calculate volume consistency (7-day average vs current 24h)
-            volumes = np.array([float(c[5]) for c in candles])  # Volume is the 6th element
-            avg_7d_volume = np.mean(volumes)
-            volume_spike_ratio = volume / avg_7d_volume if avg_7d_volume > 0 else 1.0
+            # Calculate volume consistency (compare recent 24h volume vs 7-day average)
+            # Get volume in quote currency (EUR) from candles - need to sum last 24 hourly candles
+            volumes_quote = np.array([float(c[5]) * float(c[4]) for c in candles])  # volume * close price = quote volume
+
+            # Calculate average daily volume from the 7 days of data
+            avg_daily_volume = np.mean(volumes_quote) * 24  # Average hourly * 24 = daily average
+
+            # Compare current 24h volume to average daily volume
+            volume_spike_ratio = volume / avg_daily_volume if avg_daily_volume > 0 else 1.0
 
         except Exception as e:
             logger.debug(f"Error calculating ratios for {market}: {str(e)}")
@@ -199,16 +209,27 @@ def find_best_market(market_ops: MarketOperations, max_candidates: int = 10) -> 
             logger.info(f"  ⚠️  Penalty Applied: {penalty_applied}")
         logger.info(f"  Final Score: {total_score:.3f}")
 
-        if total_score > best_score:
-            best_score = total_score
-            best_market = market
+        # Add to scored markets list
+        scored_markets.append({
+            'market': market,
+            'score': total_score
+        })
 
-    if not best_market:
-        logger.warning("No suitable market found, using default")
-        return 'VET-EUR'
+    # Sort by score and select top N
+    scored_markets = sorted(scored_markets, key=lambda x: x['score'], reverse=True)
 
-    logger.info(f"\n🎯 Selected {best_market} with score {best_score:.3f}")
-    return best_market
+    if not scored_markets:
+        logger.warning("No suitable markets found, using defaults")
+        return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR'][:top_n]
+
+    # Get top N markets
+    top_markets = [m['market'] for m in scored_markets[:top_n]]
+
+    logger.info(f"\n🎯 Selected top {len(top_markets)} markets:")
+    for i, market_data in enumerate(scored_markets[:top_n], 1):
+        logger.info(f"  {i}. {market_data['market']} (score: {market_data['score']:.3f})")
+
+    return top_markets
 
 def main():
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
@@ -311,31 +332,48 @@ def main():
 
                 market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
-            # Find best market to trade
-            market = find_best_market(market_ops)
-            logger.info(f"Selected market for trading: {market}")
+            # Find best markets to trade (top 3-5)
+            num_markets = 3 if virtual_mode else 1  # Virtual: 3 markets, Real: 1 market (safer)
+            markets = find_best_markets(market_ops, top_n=num_markets)
+            logger.info(f"Selected {len(markets)} market(s) for trading: {', '.join(markets)}")
 
-            # Display market information
-            display_market_info(market_ops, market)
+            # Display market information for first market
+            display_market_info(market_ops, markets[0])
 
-            # Run test trade cycle
+            # Run test trade cycle on first market
             logger.info("Running test trade cycle...")
-            if not market_ops.test_trade(market):
+            if not market_ops.test_trade(markets[0]):
                 logger.error("Test trade failed - aborting strategy")
                 return
 
             logger.info("Test trade successful - starting main strategy")
 
-            # Create the enhanced strategy
-            strategy = EnhancedStrategy(
-                market_ops=market_ops,
-                market=market,
-                investment_amount=10.0,  # Full €10 investment
-            )
+            # Determine strategy interval based on mode
+            # Virtual mode: faster interval for testing (60 seconds)
+            # Real mode: normal interval (300 seconds = 5 minutes)
+            strategy_interval = 60 if virtual_mode else 300
+
+            # Create strategy based on number of markets
+            if len(markets) > 1:
+                # Multi-market strategy
+                logger.info(f"Using multi-market strategy with {len(markets)} markets")
+                strategy = MultiMarketStrategy(
+                    market_ops=market_ops,
+                    markets=markets,
+                    investment_per_market=10.0
+                )
+            else:
+                # Single market strategy
+                logger.info(f"Using single-market strategy")
+                strategy = EnhancedStrategy(
+                    market_ops=market_ops,
+                    market=markets[0],
+                    investment_amount=10.0
+                )
 
             # If virtual mode, wrap the strategy execution with periodic portfolio updates
             if virtual_mode:
-                logger.info("Starting strategy with periodic portfolio updates every 5 minutes...")
+                logger.info(f"Starting strategy with {strategy_interval}s interval and portfolio updates every 5 minutes...")
                 # Run strategy in a modified loop with portfolio updates
                 import threading
 
@@ -354,9 +392,11 @@ def main():
 
                 # Show initial portfolio
                 market_ops.show_portfolio_summary()
+            else:
+                logger.info(f"Starting strategy with {strategy_interval}s interval...")
 
             # Run strategy
-            strategy.run(interval=300)
+            strategy.run(interval=strategy_interval)
 
         except AuthenticationError as e:
             logger.error(f"Authentication failed: {str(e)}")
