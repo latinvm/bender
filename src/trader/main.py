@@ -233,7 +233,7 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
 
 def main():
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
-    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade, backtest, or virtual)")
+    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade, backtest, virtual, or monitor)")
     parser.add_argument('--market', type=str, default='VET-EUR', help="Market to trade or backtest")
     parser.add_argument('--start', type=str, default='2023-01-01', help="Start date for backtesting (YYYY-MM-DD)")
     parser.add_argument('--end', type=str, default='2023-12-31', help="End date for backtesting (YYYY-MM-DD)")
@@ -241,6 +241,15 @@ def main():
     parser.add_argument('--reset-virtual', action='store_true', help="Reset virtual wallet to initial balance")
     parser.add_argument('--show-stats', action='store_true', help="Show virtual trading statistics and exit")
     args = parser.parse_args()
+
+    # Handle monitor command (Terminal UI)
+    if args.command == 'monitor':
+        logger.info("Starting Bender Terminal UI Monitor...")
+        from trader.tui import run_tui
+        # Check if we should monitor virtual or real mode
+        virtual_mode = args.virtual or True  # Default to virtual mode for monitoring
+        run_tui(virtual_mode=virtual_mode)
+        return
 
     if args.command == 'trade' or args.command == 'virtual':
         # Enable virtual mode if command is 'virtual' or --virtual flag is set

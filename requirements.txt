@@ -12,3 +12,6 @@ sqlalchemy>=2.0.0       # For more robust database operations if needed in futur
 numpy
 pandas
 pandas-ta
+
+# Terminal UI
+textual>=0.47.0         # Beautiful terminal user interfaces
