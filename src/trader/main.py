@@ -340,13 +340,27 @@ def main():
             # Display market information for first market
             display_market_info(market_ops, markets[0])
 
-            # Run test trade cycle on first market
-            logger.info("Running test trade cycle...")
-            if not market_ops.test_trade(markets[0]):
-                logger.error("Test trade failed - aborting strategy")
-                return
-
-            logger.info("Test trade successful - starting main strategy")
+            # Run test trade cycle - skip if resuming with existing positions
+            if virtual_mode:
+                # Check if we have any active positions from a previous session
+                active_positions = virtual_wallet.get_active_positions()
+                if active_positions:
+                    logger.info(f"Resuming with {len(active_positions)} existing position(s) - skipping test trade")
+                    for pos in active_positions:
+                        logger.info(f"  • {pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
+                else:
+                    logger.info("Running test trade cycle...")
+                    if not market_ops.test_trade(markets[0]):
+                        logger.error("Test trade failed - aborting strategy")
+                        return
+                    logger.info("Test trade successful - starting main strategy")
+            else:
+                # Real trading mode - always run test trade
+                logger.info("Running test trade cycle...")
+                if not market_ops.test_trade(markets[0]):
+                    logger.error("Test trade failed - aborting strategy")
+                    return
+                logger.info("Test trade successful - starting main strategy")
 
             # Determine strategy interval based on mode
             # Virtual mode: faster interval for testing (60 seconds)
