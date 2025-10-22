@@ -9,12 +9,13 @@ from typing import Dict, Optional
 logger = logging.getLogger('trader.enhanced_strategy')
 
 class EnhancedStrategy:
-    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None):
+    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3):
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
         self.db = TradeDatabase()
         self.virtual_wallet = virtual_wallet
+        self.max_positions = max_positions
         self.positions = {}
         self.entry_prices = {}
         # Price cache for TUI to avoid redundant API calls
@@ -167,6 +168,18 @@ class EnhancedStrategy:
             df = self.calculate_indicators(df)
 
             if self.should_buy(df) and self.market not in self.positions:
+                # Check global position limit before buying
+                if self.virtual_wallet is not None:
+                    active_positions = self.virtual_wallet.get_active_positions()
+                else:
+                    active_positions = self.db.get_active_positions()
+
+                current_position_count = len(active_positions)
+
+                if current_position_count >= self.max_positions:
+                    logger.info(f"Position limit reached ({current_position_count}/{self.max_positions}) - skipping buy for {self.market}")
+                    return
+
                 # Place buy order
                 current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
                 if current_price is None:

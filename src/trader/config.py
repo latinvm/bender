@@ -16,6 +16,7 @@ class VirtualTradingConfig(NamedTuple):
     virtual_db_path: str
     initial_balance: float
     trading_fee_pct: float
+    max_positions: int
 
 def get_project_root() -> Path:
     """Get project root directory (2 levels up from this file)"""
@@ -61,9 +62,10 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
     virtual_db_path = os.getenv('VIRTUAL_DB_PATH', str(data_dir / 'virtual_trades.db'))
     virtual_initial_balance = float(os.getenv('VIRTUAL_INITIAL_BALANCE', '1000.0'))
     virtual_trading_fee = float(os.getenv('VIRTUAL_TRADING_FEE', '0.25'))
+    max_positions = int(os.getenv('MAX_POSITIONS', '3'))
 
     return (
         BitvavoConfig(api_key, api_secret, operator_id),
         DatabaseConfig(db_path),
-        VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee)
+        VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee, max_positions)
     )

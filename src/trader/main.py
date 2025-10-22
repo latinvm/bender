@@ -413,7 +413,8 @@ def main():
                     market_ops=market_ops,
                     markets=markets,
                     investment_per_market=10.0,
-                    virtual_wallet=virtual_wallet if virtual_mode else None
+                    virtual_wallet=virtual_wallet if virtual_mode else None,
+                    max_positions=virtual_config.max_positions
                 )
             else:
                 # Single market strategy
@@ -422,7 +423,8 @@ def main():
                     market_ops=market_ops,
                     market=markets[0],
                     investment_amount=10.0,
-                    virtual_wallet=virtual_wallet if virtual_mode else None
+                    virtual_wallet=virtual_wallet if virtual_mode else None,
+                    max_positions=virtual_config.max_positions
                 )
 
             # Handle monitor mode
