@@ -56,37 +56,37 @@ def test_enhanced_strategy_cache():
     start = time.time()
     price1 = strategy.get_current_price(use_cache=False)
     elapsed1 = time.time() - start
-    logger.info(f"   Price: €{price1:.6f} | Time: {elapsed1*1000:.0f}ms")
-    logger.info(f"   Cache timestamp: {strategy.last_price_timestamp}")
+    logger.info(f"Price: €{price1:.6f} | Time: {elapsed1*1000:.0f}ms")
+    logger.info(f"Cache timestamp: {strategy.last_price_timestamp}")
 
     logger.info("\n2. Testing cached price fetch (should be fast)...")
     start = time.time()
     price2 = strategy.get_current_price(use_cache=True)
     elapsed2 = time.time() - start
-    logger.info(f"   Price: €{price2:.6f} | Time: {elapsed2*1000:.0f}ms")
+    logger.info(f"Price: €{price2:.6f} | Time: {elapsed2*1000:.0f}ms")
 
     if elapsed2 < elapsed1 / 10:
-        logger.info("   ✓ Cache is working (much faster than API call)")
+        logger.info("Cache is working (much faster than API call)")
     else:
-        logger.warning("   ⚠ Cache might not be working properly")
+        logger.warning("Cache might not be working properly")
 
     if price1 == price2:
-        logger.info("   ✓ Prices match")
+        logger.info("Prices match")
     else:
-        logger.error(f"   ✗ Price mismatch: {price1} vs {price2}")
+        logger.error(f"Price mismatch: {price1} vs {price2}")
 
     logger.info("\n3. Testing cache expiration (5s max age)...")
-    logger.info("   Waiting 6 seconds...")
+    logger.info("Waiting 6 seconds...")
     time.sleep(6)
     start = time.time()
     price3 = strategy.get_current_price(use_cache=True, cache_max_age=5.0)
     elapsed3 = time.time() - start
-    logger.info(f"   Price: €{price3:.6f} | Time: {elapsed3*1000:.0f}ms")
+    logger.info(f"Price: €{price3:.6f} | Time: {elapsed3*1000:.0f}ms")
 
     if elapsed3 > elapsed2 * 10:
-        logger.info("   ✓ Cache expired and fetched new price")
+        logger.info("Cache expired and fetched new price")
     else:
-        logger.warning("   ⚠ Cache might not have expired properly")
+        logger.warning("Cache might not have expired properly")
 
     logger.info("\n" + "="*80)
     return True
@@ -138,27 +138,27 @@ def test_multi_market_strategy_cache():
     start = time.time()
     prices1 = multi_strategy.get_current_prices(use_cache=False)
     elapsed1 = time.time() - start
-    logger.info(f"   Time: {elapsed1*1000:.0f}ms")
+    logger.info(f"Time: {elapsed1*1000:.0f}ms")
     for market, price in prices1.items():
-        logger.info(f"   {market}: €{price:.6f}")
+        logger.info(f"{market}: €{price:.6f}")
 
     logger.info("\n2. Getting prices with cache (should be fast)...")
     start = time.time()
     prices2 = multi_strategy.get_current_prices(use_cache=True)
     elapsed2 = time.time() - start
-    logger.info(f"   Time: {elapsed2*1000:.0f}ms")
+    logger.info(f"Time: {elapsed2*1000:.0f}ms")
     for market, price in prices2.items():
-        logger.info(f"   {market}: €{price:.6f}")
+        logger.info(f"{market}: €{price:.6f}")
 
     if elapsed2 < elapsed1 / 5:
-        logger.info("   ✓ Cache is working (much faster)")
+        logger.info("Cache is working (much faster)")
     else:
-        logger.warning("   ⚠ Cache might not be working properly")
+        logger.warning("Cache might not be working properly")
 
     if prices1 == prices2:
-        logger.info("   ✓ All prices match")
+        logger.info("All prices match")
     else:
-        logger.warning("   ⚠ Some prices differ (might be due to market movement)")
+        logger.warning("Some prices differ (might be due to market movement)")
 
     logger.info("\n" + "="*80)
     return True
@@ -166,7 +166,7 @@ def test_multi_market_strategy_cache():
 
 def main():
     """Run all tests"""
-    logger.info("\n🧪 Testing Price Caching Implementation\n")
+    logger.info("\nTesting Price Caching Implementation\n")
 
     try:
         test1_success = test_enhanced_strategy_cache()
@@ -177,14 +177,14 @@ def main():
         logger.info("="*80)
 
         if test1_success:
-            logger.info("✓ EnhancedStrategy caching: PASSED")
+            logger.info("PASSED - EnhancedStrategy caching")
         else:
-            logger.error("✗ EnhancedStrategy caching: FAILED")
+            logger.error("FAILED - EnhancedStrategy caching")
 
         if test2_success:
-            logger.info("✓ MultiMarketStrategy caching: PASSED")
+            logger.info("PASSED - MultiMarketStrategy caching")
         else:
-            logger.error("✗ MultiMarketStrategy caching: FAILED")
+            logger.error("FAILED - MultiMarketStrategy caching")
 
         logger.info("="*80)
 

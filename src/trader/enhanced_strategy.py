@@ -81,22 +81,22 @@ class EnhancedStrategy:
         # Signal 3: Price near support with momentum
         near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal - 0.000001)
 
-        logger.info(f"  Signal 1 - Strong Oversold (RSI < 40): {strong_oversold}")
-        logger.info(f"  Signal 2 - Moderate + Momentum (RSI < 55 + MACD>Signal): {moderate_oversold_with_momentum}")
-        logger.info(f"  Signal 3 - Near Support + Momentum: {near_support_with_momentum}")
+        logger.info(f"Signal 1 - Strong Oversold (RSI < 40): {strong_oversold}")
+        logger.info(f"Signal 2 - Moderate + Momentum (RSI < 55 + MACD>Signal): {moderate_oversold_with_momentum}")
+        logger.info(f"Signal 3 - Near Support + Momentum: {near_support_with_momentum}")
 
         # Trigger buy if ANY signal is met
         if strong_oversold:
             reason = "Strong Oversold"
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            logger.info(f"BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
             return True, reason
         elif moderate_oversold_with_momentum:
             reason = "Moderate Oversold + Momentum"
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            logger.info(f"BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
             return True, reason
         elif near_support_with_momentum:
             reason = "Near Support + Momentum"
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            logger.info(f"BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
             return True, reason
 
         return False, ""
@@ -124,7 +124,7 @@ class EnhancedStrategy:
         profit_percentage = ((price - entry_price) / entry_price) * 100
 
         logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
-        logger.info(f"  {self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
+        logger.info(f"{self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
 
         # RELAXED Sell condition: RSI > 60 AND MACD bearish
         # This will exit positions earlier before major reversals
@@ -132,21 +132,21 @@ class EnhancedStrategy:
         macd_bearish = macd < macd_signal
         # Removed the upper BB requirement for more signals
 
-        logger.info(f"  RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
+        logger.info(f"RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
 
         if rsi_overbought and macd_bearish:
             reason = f"Technical (RSI: {rsi:.1f}, MACD Bearish)"
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason
 
         # Stop-loss and take-profit
         if profit_percentage >= 15.0:
             reason = f"Take Profit ({profit_percentage:+.2f}%)"
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason
         elif profit_percentage <= -5.0:
             reason = f"Stop Loss ({profit_percentage:+.2f}%)"
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason
 
         return False, ""
@@ -195,8 +195,8 @@ class EnhancedStrategy:
 
                 if current_position_count >= self.max_positions:
                     active_markets = [pos['market'] for pos in active_positions]
-                    logger.info(f"❌ POSITION LIMIT REACHED ({current_position_count}/{self.max_positions}) - Cannot buy {self.market}")
-                    logger.info(f"   Active positions: {', '.join(active_markets)}")
+                    logger.info(f"POSITION LIMIT REACHED ({current_position_count}/{self.max_positions}) - Cannot buy {self.market}")
+                    logger.info(f"Active positions: {', '.join(active_markets)}")
                     return
 
                 # Place buy order
@@ -211,11 +211,11 @@ class EnhancedStrategy:
                 self.entry_prices[self.market] = current_price
                 self.db.record_trade_entry(self.market, current_price, amount)
 
-                logger.info(f"🟢 BUY EXECUTED for {self.market}")
-                logger.info(f"   Reason: {buy_reason}")
-                logger.info(f"   Amount: {amount:.8f} {self.market} (€{self.investment_amount:.2f})")
-                logger.info(f"   Price: €{current_price:.6f}")
-                logger.info(f"   Active positions: {current_position_count + 1}/{self.max_positions}")
+                logger.info(f"BUY EXECUTED for {self.market}")
+                logger.info(f"Reason: {buy_reason}")
+                logger.info(f"Amount: {amount:.8f} {self.market} (€{self.investment_amount:.2f})")
+                logger.info(f"Price: €{current_price:.6f}")
+                logger.info(f"Active positions: {current_position_count + 1}/{self.max_positions}")
 
             elif should_sell and self.market in self.positions:
                 # Place sell order
@@ -234,18 +234,18 @@ class EnhancedStrategy:
                 del self.positions[self.market]
                 del self.entry_prices[self.market]
 
-                logger.info(f"🔴 SELL EXECUTED for {self.market}")
-                logger.info(f"   Reason: {sell_reason}")
-                logger.info(f"   Amount: {amount:.8f} {self.market}")
-                logger.info(f"   Entry: €{entry_price:.6f} → Exit: €{current_price:.6f}")
-                logger.info(f"   P/L: {profit_pct:+.2f}% (€{profit_eur:+.4f})")
+                logger.info(f"SELL EXECUTED for {self.market}")
+                logger.info(f"Reason: {sell_reason}")
+                logger.info(f"Amount: {amount:.8f} {self.market}")
+                logger.info(f"Entry: €{entry_price:.6f} -> Exit: €{current_price:.6f}")
+                logger.info(f"P/L: {profit_pct:+.2f}% (€{profit_eur:+.4f})")
             else:
                 # Not trading but still update price cache for TUI
                 self.get_current_price(use_cache=False)
                 if self.market in self.positions:
-                    logger.info(f"⏸️  HOLDING {self.market} - No sell signal")
+                    logger.info(f"HOLDING {self.market} - No sell signal")
                 else:
-                    logger.info(f"⏸️  MONITORING {self.market} - No buy signal")
+                    logger.info(f"MONITORING {self.market} - No buy signal")
 
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")

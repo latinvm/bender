@@ -198,15 +198,15 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
             continue
 
         logger.info(f"\nAnalyzing {market}:")
-        logger.info(f"  Volume (24h): €{volume:.2f} | Score: {volume_score:.2f}")
-        logger.info(f"  Volatility: {volatility:.1f}% | Score: {volatility_score:.2f}")
-        logger.info(f"  Sharpe Ratio: {sharpe_ratio:.2f} | Score: {sharpe_score:.2f}")
-        logger.info(f"  Sortino Ratio: {sortino_ratio:.2f} | Score: {sortino_score:.2f}")
-        logger.info(f"  Bid-Ask Spread: {spread_pct:.3f}% | Score: {spread_score:.2f}")
-        logger.info(f"  Volume Consistency: {volume_spike_ratio:.2f}x avg")
+        logger.info(f"Volume (24h): €{volume:.2f} | Score: {volume_score:.2f}")
+        logger.info(f"Volatility: {volatility:.1f}% | Score: {volatility_score:.2f}")
+        logger.info(f"Sharpe Ratio: {sharpe_ratio:.2f} | Score: {sharpe_score:.2f}")
+        logger.info(f"Sortino Ratio: {sortino_ratio:.2f} | Score: {sortino_score:.2f}")
+        logger.info(f"Bid-Ask Spread: {spread_pct:.3f}% | Score: {spread_score:.2f}")
+        logger.info(f"Volume Consistency: {volume_spike_ratio:.2f}x avg")
         if penalty_applied:
-            logger.info(f"  ⚠️  Penalty Applied: {penalty_applied}")
-        logger.info(f"  Final Score: {total_score:.3f}")
+            logger.info(f"Penalty Applied: {penalty_applied}")
+        logger.info(f"Final Score: {total_score:.3f}")
 
         # Add to scored markets list
         scored_markets.append({
@@ -224,9 +224,9 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
     # Get top N markets
     top_markets = [m['market'] for m in scored_markets[:top_n]]
 
-    logger.info(f"\n🎯 Selected top {len(top_markets)} markets:")
+    logger.info(f"\nSelected top {len(top_markets)} markets:")
     for i, market_data in enumerate(scored_markets[:top_n], 1):
-        logger.info(f"  {i}. {market_data['market']} (score: {market_data['score']:.3f})")
+        logger.info(f"{i}. {market_data['market']} (score: {market_data['score']:.3f})")
 
     return top_markets
 
@@ -258,10 +258,10 @@ def main():
 
         if virtual_mode:
             logger.info("Starting trader application in VIRTUAL TRADING MODE")
-            logger.info("⚠️  All trades will be simulated - no real money will be used")
+            logger.info("WARNING: All trades will be simulated - no real money will be used")
         else:
             logger.info("Starting trader application in REAL TRADING MODE")
-            logger.info("⚠️  WARNING: Real trades will be executed with real money!")
+            logger.info("WARNING: Real trades will be executed with real money!")
 
         if args.monitor:
             logger.info("Monitor mode enabled - logs will be written to logs/ directory")
@@ -314,11 +314,10 @@ def main():
                         logger.info("\nRecent Trades (Last 10):")
                         logger.info("-"*80)
                         for trade in recent_trades:
-                            status_symbol = "✓" if trade['status'] == 'CLOSED' else "○"
                             if trade['status'] == 'CLOSED':
-                                logger.info(f"{status_symbol} {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f} → €{trade['exit_price']:.6f} | P/L: €{trade['profit_loss']:+.2f} ({trade['profit_loss_pct']:+.2f}%)")
+                                logger.info(f"[CLOSED] {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f} -> €{trade['exit_price']:.6f} | P/L: €{trade['profit_loss']:+.2f} ({trade['profit_loss_pct']:+.2f}%)")
                             else:
-                                logger.info(f"{status_symbol} {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f} [ACTIVE]")
+                                logger.info(f"[ACTIVE] {trade['market']}: {trade['amount']:.8f} @ €{trade['entry_price']:.6f}")
                     return
 
                 # Initialize virtual market operations
@@ -346,7 +345,7 @@ def main():
                     if active_positions:
                         logger.info(f"\nActive Positions: {len(active_positions)}")
                         for pos in active_positions:
-                            logger.info(f"  • {pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
+                            logger.info(f"{pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
                     else:
                         logger.info("\nActive Positions: 0")
 
@@ -361,7 +360,7 @@ def main():
                 if active_positions:
                     logger.info("Found active positions from previous session:")
                     for pos in active_positions:
-                        logger.info(f"  {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
+                        logger.info(f"{pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
 
                 # Show total P/L
                 total_pl = db.get_total_profit_loss()
@@ -385,7 +384,7 @@ def main():
                 if active_positions:
                     logger.info(f"Resuming with {len(active_positions)} existing position(s) - skipping test trade")
                     for pos in active_positions:
-                        logger.info(f"  • {pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
+                        logger.info(f"{pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
                 else:
                     logger.info("Running test trade cycle...")
                     if not market_ops.test_trade(markets[0]):

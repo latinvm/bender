@@ -81,27 +81,27 @@ class TUIActivityHandler(logging.Handler):
 
         # Color coding based on activity type
         if 'buy' in msg.lower() and 'signal' in msg.lower():
-            return f"[blue]💰[/blue] {msg}"
+            return f"[blue]BUY SIGNAL[/blue] {msg}"
         elif 'buy' in msg.lower() and 'order placed' in msg.lower():
-            return f"[green]✓ BUY[/green] {msg}"
+            return f"[green]BUY[/green] {msg}"
         elif 'sell' in msg.lower() and 'signal' in msg.lower():
-            return f"[yellow]📊[/yellow] {msg}"
+            return f"[yellow]SELL SIGNAL[/yellow] {msg}"
         elif 'sell' in msg.lower() and 'order placed' in msg.lower():
-            return f"[yellow]✓ SELL[/yellow] {msg}"
+            return f"[yellow]SELL[/yellow] {msg}"
         elif 'take profit' in msg.lower() or 'stop loss' in msg.lower():
-            return f"[magenta]🎯[/magenta] {msg}"
+            return f"[magenta]EXIT[/magenta] {msg}"
         elif 'test trade' in msg.lower():
-            return f"[cyan]🧪[/cyan] {msg}"
+            return f"[cyan]TEST[/cyan] {msg}"
         elif 'resuming' in msg.lower() or 'position' in msg.lower():
-            return f"[blue]📌[/blue] {msg}"
+            return f"[blue]POSITION[/blue] {msg}"
         elif 'virtual' in msg.lower() and 'executed' in msg.lower():
-            return f"[green]✓[/green] {msg}"
+            return f"[green]OK[/green] {msg}"
         elif level == 'ERROR':
-            return f"[red]✗[/red] {msg}"
+            return f"[red]ERROR[/red] {msg}"
         elif level == 'WARNING':
-            return f"[yellow]⚠[/yellow] {msg}"
+            return f"[yellow]WARNING[/yellow] {msg}"
         else:
-            return f"[dim]•[/dim] {msg}"
+            return f"{msg}"
 
 def setup_logger(name: str = 'trader', console_output: bool = True) -> logging.Logger:
     """Setup basic logging configuration

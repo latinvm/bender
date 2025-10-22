@@ -241,7 +241,7 @@ class BenderTUI(App):
         """Create child widgets"""
         mode = "VIRTUAL" if self.virtual_mode else "REAL"
         yield Header(show_clock=True)
-        yield Static(f"🤖 Bender Trading Bot - {mode} MODE", id="title")
+        yield Static(f"Bender Trading Bot - {mode} MODE", id="title")
         yield BalancePanel(id="balance-panel")
         yield PositionsPanel(id="positions-panel")
 
@@ -278,7 +278,7 @@ class BenderTUI(App):
         activity = self.query_one("#activity-panel", ActivityPanel)
         mode = "virtual" if self.virtual_mode else "real"
         live_label = "LIVE" if self.strategy else "standalone"
-        activity.add_message(f"[green]✓[/green] Bender TUI started ({mode} mode, {live_label})")
+        activity.add_message(f"[green]START[/green] Bender TUI started ({mode} mode, {live_label})")
 
         # Start update loop
         self.set_interval(self.update_interval, self.update_data)
@@ -378,13 +378,13 @@ class BenderTUI(App):
 
         except Exception as e:
             activity = self.query_one("#activity-panel", ActivityPanel)
-            activity.add_message(f"[red]✗[/red] Error: {str(e)}")
+            activity.add_message(f"[red]ERROR[/red] {str(e)}")
 
     def action_refresh(self) -> None:
         """Manually refresh data"""
         self.update_data()
         activity = self.query_one("#activity-panel", ActivityPanel)
-        activity.add_message("[blue]🔄[/blue] Data refreshed")
+        activity.add_message("[blue]REFRESH[/blue] Data refreshed")
 
     def action_quit(self) -> None:
         """Quit the application"""

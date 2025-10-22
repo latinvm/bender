@@ -236,13 +236,13 @@ class VirtualMarketOperations:
 
             for pos in summary['positions']:
                 logger.info(f"\n{pos['market']}:")
-                logger.info(f"  Amount:       {pos['amount']:.8f}")
-                logger.info(f"  Entry Price:  €{pos['entry_price']:.6f}")
-                logger.info(f"  Current Price: €{pos['current_price']:.6f}")
-                logger.info(f"  Entry Value:  €{pos['entry_value']:.2f}")
-                logger.info(f"  Current Value: €{pos['current_value']:.2f}")
-                logger.info(f"  Unrealized P/L: €{pos['unrealized_pl']:+.2f} ({pos['unrealized_pl_pct']:+.2f}%)")
-                logger.info(f"  Entry Time:   {pos['entry_time']}")
+                logger.info(f"Amount: {pos['amount']:.8f}")
+                logger.info(f"Entry Price: €{pos['entry_price']:.6f}")
+                logger.info(f"Current Price: €{pos['current_price']:.6f}")
+                logger.info(f"Entry Value: €{pos['entry_value']:.2f}")
+                logger.info(f"Current Value: €{pos['current_value']:.2f}")
+                logger.info(f"Unrealized P/L: €{pos['unrealized_pl']:+.2f} ({pos['unrealized_pl_pct']:+.2f}%)")
+                logger.info(f"Entry Time: {pos['entry_time']}")
 
             logger.info("\n" + "-"*80)
             logger.info(f"Total Positions:      {summary['position_count']}")
