@@ -52,8 +52,12 @@ class EnhancedStrategy:
         df.ta.bbands(length=20, std=2, append=True)
         return df
 
-    def should_buy(self, df: pd.DataFrame) -> bool:
-        """Determine if we should buy based on the strategy."""
+    def should_buy(self, df: pd.DataFrame) -> tuple[bool, str]:
+        """Determine if we should buy based on the strategy.
+
+        Returns:
+            Tuple of (should_buy: bool, reason: str)
+        """
         last = df.iloc[-1]
 
         # Log current indicators
@@ -83,24 +87,31 @@ class EnhancedStrategy:
 
         # Trigger buy if ANY signal is met
         if strong_oversold:
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Strong Oversold)")
-            return True
+            reason = "Strong Oversold"
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            return True, reason
         elif moderate_oversold_with_momentum:
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Moderate Oversold + Momentum)")
-            return True
+            reason = "Moderate Oversold + Momentum"
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            return True, reason
         elif near_support_with_momentum:
-            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Near Support + Momentum)")
-            return True
+            reason = "Near Support + Momentum"
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! ({reason})")
+            return True, reason
 
-        return False
+        return False, ""
 
-    def should_sell(self, df: pd.DataFrame) -> bool:
-        """Determine if we should sell based on the strategy."""
+    def should_sell(self, df: pd.DataFrame) -> tuple[bool, str]:
+        """Determine if we should sell based on the strategy.
+
+        Returns:
+            Tuple of (should_sell: bool, reason: str)
+        """
         last = df.iloc[-1]
 
         # Check if we have a position
         if self.market not in self.positions:
-            return False
+            return False, ""
 
         # Log current indicators
         rsi = last['RSI_14']
@@ -124,18 +135,21 @@ class EnhancedStrategy:
         logger.info(f"  RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
 
         if rsi_overbought and macd_bearish:
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Technical)")
-            return True
+            reason = f"Technical (RSI: {rsi:.1f}, MACD Bearish)"
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            return True, reason
 
         # Stop-loss and take-profit
         if profit_percentage >= 15.0:
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Take Profit: {profit_percentage:+.2f}%)")
-            return True
+            reason = f"Take Profit ({profit_percentage:+.2f}%)"
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            return True, reason
         elif profit_percentage <= -5.0:
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Stop Loss: {profit_percentage:+.2f}%)")
-            return True
+            reason = f"Stop Loss ({profit_percentage:+.2f}%)"
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} ({reason})")
+            return True, reason
 
-        return False
+        return False, ""
 
     def get_current_price(self, use_cache: bool = True, cache_max_age: float = 30.0) -> Optional[float]:
         """Get current price with optional caching
@@ -167,7 +181,10 @@ class EnhancedStrategy:
             df = self.get_historical_data()
             df = self.calculate_indicators(df)
 
-            if self.should_buy(df) and self.market not in self.positions:
+            should_buy, buy_reason = self.should_buy(df)
+            should_sell, sell_reason = self.should_sell(df)
+
+            if should_buy and self.market not in self.positions:
                 # Check global position limit before buying
                 if self.virtual_wallet is not None:
                     active_positions = self.virtual_wallet.get_active_positions()
@@ -177,7 +194,9 @@ class EnhancedStrategy:
                 current_position_count = len(active_positions)
 
                 if current_position_count >= self.max_positions:
-                    logger.info(f"Position limit reached ({current_position_count}/{self.max_positions}) - skipping buy for {self.market}")
+                    active_markets = [pos['market'] for pos in active_positions]
+                    logger.info(f"❌ POSITION LIMIT REACHED ({current_position_count}/{self.max_positions}) - Cannot buy {self.market}")
+                    logger.info(f"   Active positions: {', '.join(active_markets)}")
                     return
 
                 # Place buy order
@@ -191,9 +210,14 @@ class EnhancedStrategy:
                 self.positions[self.market] = amount
                 self.entry_prices[self.market] = current_price
                 self.db.record_trade_entry(self.market, current_price, amount)
-                logger.info(f"Buy order placed for {amount:.8f} {self.market} at €{current_price:.6f}")
 
-            elif self.should_sell(df) and self.market in self.positions:
+                logger.info(f"🟢 BUY EXECUTED for {self.market}")
+                logger.info(f"   Reason: {buy_reason}")
+                logger.info(f"   Amount: {amount:.8f} {self.market} (€{self.investment_amount:.2f})")
+                logger.info(f"   Price: €{current_price:.6f}")
+                logger.info(f"   Active positions: {current_position_count + 1}/{self.max_positions}")
+
+            elif should_sell and self.market in self.positions:
                 # Place sell order
                 current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
                 if current_price is None:
@@ -201,14 +225,27 @@ class EnhancedStrategy:
                     return
 
                 amount = self.positions[self.market]
+                entry_price = self.entry_prices[self.market]
+                profit_pct = ((current_price - entry_price) / entry_price) * 100
+                profit_eur = (amount * current_price) - (amount * entry_price)
+
                 order = self.market_ops.place_market_order(self.market, 'sell', amount)
                 self.db.record_trade_exit(self.market, current_price)
                 del self.positions[self.market]
                 del self.entry_prices[self.market]
-                logger.info(f"Sell order placed for {amount:.8f} {self.market} at €{current_price:.6f}")
+
+                logger.info(f"🔴 SELL EXECUTED for {self.market}")
+                logger.info(f"   Reason: {sell_reason}")
+                logger.info(f"   Amount: {amount:.8f} {self.market}")
+                logger.info(f"   Entry: €{entry_price:.6f} → Exit: €{current_price:.6f}")
+                logger.info(f"   P/L: {profit_pct:+.2f}% (€{profit_eur:+.4f})")
             else:
                 # Not trading but still update price cache for TUI
                 self.get_current_price(use_cache=False)
+                if self.market in self.positions:
+                    logger.info(f"⏸️  HOLDING {self.market} - No sell signal")
+                else:
+                    logger.info(f"⏸️  MONITORING {self.market} - No buy signal")
 
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")
