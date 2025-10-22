@@ -108,6 +108,108 @@ Transform Bender into a robust, profitable trading bot that effectively exploits
 
 ### 1.3 Testing & Validation
 
+#### Unit Test Coverage (Priority: CRITICAL)
+**Current Coverage: ~35-40%** - Many critical modules have NO tests
+
+##### High Priority - Core Trading Logic
+- [ ] **Test Enhanced Strategy** (`enhanced_strategy.py`)
+  - Test historical data retrieval
+  - Test indicator calculations (RSI, MACD, Bollinger Bands)
+  - Test buy signal generation (all 3 buy signals):
+    - Signal 1: Strong Oversold (RSI < 40)
+    - Signal 2: Moderate Oversold + Momentum
+    - Signal 3: Near Support + Momentum
+  - Test sell signal generation (RSI > 60 AND MACD < Signal)
+  - Test stop-loss logic (-5%)
+  - Test take-profit logic (+15%)
+  - Test position management
+  - Test price caching behavior
+  - **Impact**: CRITICAL - This is the core trading logic with no unit tests
+  - **Estimated Time**: 8-10 hours
+  - **File**: `tests/test_enhanced_strategy.py` (NEW)
+
+- [ ] **Test Virtual Wallet** (`virtual_wallet.py`)
+  - Test database initialization
+  - Test balance management (get, update, reset)
+  - Test position tracking (create, update, close)
+  - Test virtual trade execution (buy/sell)
+  - Test fee calculations
+  - Test statistics retrieval
+  - Test position resetting
+  - Test concurrent position handling
+  - **Impact**: CRITICAL - No tests for virtual trading system
+  - **Estimated Time**: 6-8 hours
+  - **File**: `tests/test_virtual_wallet.py` (NEW)
+
+- [ ] **Test Virtual Market Operations** (`virtual_market.py`)
+  - Test initialization with virtual wallet
+  - Test virtual balance retrieval (formatted as Bitvavo response)
+  - Test simulated market order placement
+  - Test simulated limit order placement
+  - Test fee application
+  - Test pass-through of market data methods
+  - Test operator_id handling
+  - **Impact**: HIGH - Virtual trading has no test coverage
+  - **Estimated Time**: 5-6 hours
+  - **File**: `tests/test_virtual_market.py` (NEW)
+
+- [ ] **Test Multi-Market Strategy** (`multi_market_strategy.py`)
+  - Test multi-market initialization
+  - Test orphaned position detection and handling
+  - Test portfolio-wide position limit enforcement
+  - Test strategy instance creation for each market
+  - Test multi-market execution loop
+  - Test price caching across markets
+  - Test position monitoring across markets
+  - **Impact**: HIGH - Portfolio management has no tests
+  - **Estimated Time**: 6-8 hours
+  - **File**: `tests/test_multi_market_strategy.py` (NEW)
+
+##### Medium Priority - Backtesting & Analysis
+- [ ] **Test Backtester** (`backtester.py`)
+  - Test backtest initialization
+  - Test historical data loading and filtering
+  - Test date range handling
+  - Test strategy execution simulation
+  - Test performance metrics calculation
+  - Test Sharpe ratio calculation
+  - Test edge cases (no data, invalid date ranges)
+  - **Impact**: MEDIUM - Important for strategy validation
+  - **Estimated Time**: 6-7 hours
+  - **File**: `tests/test_backtester.py` (NEW)
+
+##### Low Priority - Infrastructure
+- [ ] **Test Bitvavo Client** (`bitvavo.py`)
+  - Test client initialization
+  - Test API connection (get_time)
+  - Test market data retrieval
+  - Test ticker price fetching
+  - Mock external API calls
+  - **Impact**: LOW - Thin wrapper around external library
+  - **Estimated Time**: 3-4 hours
+  - **File**: `tests/test_bitvavo.py` (NEW)
+
+- [ ] **Test Logger** (`logger.py`)
+  - Test TUILogHandler initialization and emit
+  - Test TUIActivityHandler filtering logic
+  - Test activity message formatting
+  - Test logger setup
+  - Test handler attachment
+  - **Impact**: LOW - Infrastructure component
+  - **Estimated Time**: 4-5 hours
+  - **File**: `tests/test_logger.py` (NEW)
+
+- [ ] **Test TUI** (`tui.py`)
+  - Test BalancePanel rendering
+  - Test PositionsPanel rendering
+  - Test ActivityPanel updates
+  - Test real-time data updates
+  - **Impact**: LOW - UI testing is complex, may need integration tests
+  - **Estimated Time**: 8-10 hours
+  - **File**: `tests/test_tui.py` (NEW)
+  - **Note**: Consider using textual's testing utilities
+
+#### Integration Testing
 - [ ] **Enhanced Backtesting Framework**
   - Add support for testing on multiple pairs simultaneously
   - Include spread costs in backtest results
@@ -117,10 +219,22 @@ Transform Bender into a robust, profitable trading bot that effectively exploits
   - **Estimated Time**: 6-8 hours
   - **File**: `src/trader/backtester.py`
 
-- [ ] **Unit Tests for New Features**
-  - Test spread calculation and filtering
-  - Test volume consistency detection
-  - Test reweighted scoring algorithm
+- [ ] **End-to-End Virtual Trading Test**
+  - Test complete virtual trading workflow
+  - Test multi-market strategy execution
+  - Test position management across restarts
+  - Test database persistence
+  - **Estimated Time**: 6-8 hours
+  - **File**: `tests/test_integration.py` (NEW)
+
+#### Expand Existing Test Coverage
+- [ ] **Expand test_main.py**
+  - Test spread calculation and filtering ✅ (DONE)
+  - Test volume consistency detection ✅ (DONE)
+  - Test reweighted scoring algorithm ✅ (DONE)
+  - Add tests for main() function execution paths
+  - Add tests for display_market_info edge cases
+  - Add tests for calculate_sharpe_ratio
   - Mock Bitvavo API responses for testing
   - **Estimated Time**: 4-5 hours
   - **File**: `tests/test_main.py`
@@ -473,29 +587,33 @@ Transform Bender into a robust, profitable trading bot that effectively exploits
 1. ✅ Bid-ask spread filter
 2. ✅ Reweight scoring formula
 3. ✅ Volume consistency check
-4. Decision logging improvements
-5. Multi-position monitoring
+4. **Unit Tests for Core Trading Logic** (enhanced_strategy.py, virtual_wallet.py)
+5. Decision logging improvements
+6. Multi-position monitoring
 
 ### High Priority (Do Next)
-6. ATR-based volatility scoring
-7. Enhanced backtesting framework
-8. Dynamic position sizing
-9. Order book depth analysis
-10. BTC correlation analysis
+7. **Unit Tests for Virtual Trading** (virtual_market.py, multi_market_strategy.py)
+8. ATR-based volatility scoring
+9. Enhanced backtesting framework
+10. Dynamic position sizing
+11. Order book depth analysis
+12. BTC correlation analysis
 
 ### Medium Priority (After Core Features)
-11. Multi-pair portfolio selection
-12. Volatility-adjusted stops/targets
-13. Multiple timeframe analysis
-14. ADX trend quality filter
-15. Performance analytics dashboard
+13. **Unit Tests for Backtester** (backtester.py)
+14. Multi-pair portfolio selection
+15. Volatility-adjusted stops/targets
+16. Multiple timeframe analysis
+17. ADX trend quality filter
+18. Performance analytics dashboard
 
 ### Low Priority (Nice to Have)
-16. Alternative strategies (mean reversion, breakout)
-17. ML-based predictions
-18. Social sentiment integration
-19. On-chain metrics
-20. Advanced regime detection
+19. **Unit Tests for Infrastructure** (bitvavo.py, logger.py, tui.py)
+20. Alternative strategies (mean reversion, breakout)
+21. ML-based predictions
+22. Social sentiment integration
+23. On-chain metrics
+24. Advanced regime detection
 
 ---
 
@@ -510,7 +628,10 @@ Transform Bender into a robust, profitable trading bot that effectively exploits
 
 4. **Timezone handling**: All timestamps should use UTC consistently. Need audit of timezone usage.
 
+5. **Test Coverage Gap**: Only ~35-40% of codebase has unit tests. Critical modules like enhanced_strategy.py, virtual_wallet.py, and multi_market_strategy.py have NO test coverage.
+
 ### Technical Debt
+- **Add comprehensive unit tests** for core trading logic (see Phase 1.3)
 - Consider migrating from SQLite to PostgreSQL for production
 - Add proper logging rotation (currently creates new file per day, but no cleanup)
 - Implement connection pooling for database
@@ -543,6 +664,28 @@ Transform Bender into a robust, profitable trading bot that effectively exploits
 
 ---
 
-**Last Updated**: 2025-10-20
-**Version**: 1.0
-**Status**: Phase 1 in progress
+## Test Coverage Summary
+
+### Currently Tested (✅)
+- `database.py` - Comprehensive coverage
+- `config.py` - Security and configuration tests
+- `market.py` - Market operations and order handling
+- `main.py` - Partial coverage (market selection logic)
+
+### Needs Tests (❌)
+- `enhanced_strategy.py` - **CRITICAL** - Core trading logic (0% coverage)
+- `virtual_wallet.py` - **CRITICAL** - Virtual trading system (0% coverage)
+- `virtual_market.py` - **HIGH** - Virtual market operations (0% coverage)
+- `multi_market_strategy.py` - **HIGH** - Portfolio management (0% coverage)
+- `backtester.py` - **MEDIUM** - Backtesting system (0% coverage)
+- `bitvavo.py` - **LOW** - API wrapper (0% coverage)
+- `logger.py` - **LOW** - Logging infrastructure (0% coverage)
+- `tui.py` - **LOW** - Terminal UI (0% coverage)
+
+**Total Estimated Time for Complete Coverage**: 55-70 hours
+
+---
+
+**Last Updated**: 2025-10-22
+**Version**: 1.1
+**Status**: Phase 1 in progress - Test coverage gaps identified
