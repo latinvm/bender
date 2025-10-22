@@ -89,12 +89,16 @@ class StatsPanel(Static):
     losing_trades = reactive(0)
     win_rate = reactive(0.0)
     avg_pl = reactive(0.0)
+    current_balance = reactive(0.0)
+    active_trades = reactive(0)
 
     def render(self) -> str:
         win_color = "green" if self.win_rate >= 50 else "yellow" if self.win_rate >= 40 else "red"
 
         return f"""[b]Trading Statistics[/b]
 {'─' * 30}
+Current Balance:  €{self.current_balance:.2f}
+Active Trades:    {self.active_trades}
 Total Trades:     {self.total_trades}
 Winning Trades:   [green]{self.winning_trades}[/green]
 Losing Trades:    [red]{self.losing_trades}[/red]
@@ -311,6 +315,8 @@ class BenderTUI(App):
 
                 # Update stats
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
+                stats_panel.current_balance = balance_panel.balance
+                stats_panel.active_trades = len(positions)
                 stats_panel.total_trades = stats['total_trades']
                 stats_panel.winning_trades = stats['winning_trades']
                 stats_panel.losing_trades = stats['losing_trades']
@@ -334,6 +340,8 @@ class BenderTUI(App):
 
                 # Get real trading statistics from database
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
+                stats_panel.current_balance = balance_panel.balance
+                stats_panel.active_trades = len(positions)
                 trade_stats = self.db.get_trade_statistics()
                 stats_panel.total_trades = trade_stats['total_trades']
                 stats_panel.winning_trades = trade_stats['winning_trades']

@@ -82,13 +82,13 @@ class EnhancedStrategy:
 
         # Trigger buy if ANY signal is met
         if strong_oversold:
-            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Strong Oversold)")
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Strong Oversold)")
             return True
         elif moderate_oversold_with_momentum:
-            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Moderate Oversold + Momentum)")
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Moderate Oversold + Momentum)")
             return True
         elif near_support_with_momentum:
-            logger.info("  ✓ BUY SIGNAL TRIGGERED! (Near Support + Momentum)")
+            logger.info(f"  ✓ BUY SIGNAL TRIGGERED for {self.market}! (Near Support + Momentum)")
             return True
 
         return False
@@ -112,7 +112,7 @@ class EnhancedStrategy:
         profit_percentage = ((price - entry_price) / entry_price) * 100
 
         logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
-        logger.info(f"  Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
+        logger.info(f"  {self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
 
         # RELAXED Sell condition: RSI > 60 AND MACD bearish
         # This will exit positions earlier before major reversals
@@ -123,15 +123,15 @@ class EnhancedStrategy:
         logger.info(f"  RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
 
         if rsi_overbought and macd_bearish:
-            logger.info("  ✓ SELL SIGNAL TRIGGERED (Technical)")
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Technical)")
             return True
 
         # Stop-loss and take-profit
         if profit_percentage >= 15.0:
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED (Take Profit: {profit_percentage:+.2f}%)")
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Take Profit: {profit_percentage:+.2f}%)")
             return True
         elif profit_percentage <= -5.0:
-            logger.info(f"  ✓ SELL SIGNAL TRIGGERED (Stop Loss: {profit_percentage:+.2f}%)")
+            logger.info(f"  ✓ SELL SIGNAL TRIGGERED for {self.market} (Stop Loss: {profit_percentage:+.2f}%)")
             return True
 
         return False
