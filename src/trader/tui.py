@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Union
 from trader.virtual_wallet import VirtualWallet
 from trader.database import TradeDatabase
 from trader.config import get_config
-from trader.logger import add_tui_handler
+from trader.logger import add_tui_handler, add_tui_activity_handler
 
 logger = logging.getLogger('trader.tui')
 
@@ -261,10 +261,14 @@ class BenderTUI(App):
             _, db_config, _ = get_config()
             self.db = TradeDatabase(db_path=db_config.db_path)
 
-        # Set up log handler to capture logs in the TUI
+        # Set up log handlers to capture logs in the TUI
         if self.strategy:  # Only in live mode
             log_panel = self.query_one("#log-panel", LogPanel)
             add_tui_handler(log_panel.add_log)
+
+            # Set up activity handler to capture important trading events
+            activity_panel = self.query_one("#activity-panel", ActivityPanel)
+            add_tui_activity_handler(activity_panel.add_message)
 
         # Log startup
         activity = self.query_one("#activity-panel", ActivityPanel)
@@ -328,14 +332,14 @@ class BenderTUI(App):
                 balance_panel.total_pl = total_pl
                 balance_panel.total_pl_pct = 0  # Can't calculate without balance tracking
 
-                # For real mode, we don't have the same stats structure
-                # Just show basic info
+                # Get real trading statistics from database
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
-                stats_panel.total_trades = 0  # Database doesn't track this the same way
-                stats_panel.winning_trades = 0
-                stats_panel.losing_trades = 0
-                stats_panel.win_rate = 0.0
-                stats_panel.avg_pl = 0.0
+                trade_stats = self.db.get_trade_statistics()
+                stats_panel.total_trades = trade_stats['total_trades']
+                stats_panel.winning_trades = trade_stats['winning_trades']
+                stats_panel.losing_trades = trade_stats['losing_trades']
+                stats_panel.win_rate = trade_stats['win_rate']
+                stats_panel.avg_pl = trade_stats['avg_profit_loss']
 
             # Update positions with live prices from strategy cache
             positions_panel = self.query_one("#positions-panel", PositionsPanel)

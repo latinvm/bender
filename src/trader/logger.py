@@ -22,6 +22,87 @@ class TUILogHandler(logging.Handler):
         except Exception:
             self.handleError(record)
 
+
+class TUIActivityHandler(logging.Handler):
+    """Custom log handler that filters and sends important trading events to TUI activity panel
+
+    Captures:
+    - Buy/sell order executions
+    - Position changes
+    - Strategy signals
+    - Errors and warnings
+    """
+
+    def __init__(self, callback: Callable[[str], None]):
+        super().__init__()
+        self.callback = callback
+        # Keywords that indicate important trading activity
+        self.important_keywords = [
+            'buy order placed',
+            'sell order placed',
+            'buy signal triggered',
+            'sell signal triggered',
+            'order executed',
+            'position',
+            'take profit',
+            'stop loss',
+            'error',
+            'warning',
+            'test trade',
+            'resuming with',
+            'virtual',
+            'balance'
+        ]
+
+    def emit(self, record):
+        try:
+            msg = record.getMessage().lower()
+            level = record.levelname
+
+            # Always include errors and warnings
+            is_important = (level in ['ERROR', 'WARNING']) or any(keyword in msg for keyword in self.important_keywords)
+
+            if is_important:
+                # Format for activity panel (shorter format)
+                formatted = self._format_activity(record)
+                if formatted:
+                    self.callback(formatted)
+        except Exception:
+            self.handleError(record)
+
+    def _format_activity(self, record) -> Optional[str]:
+        """Format log record as activity message
+
+        Returns:
+            Formatted string or None to skip
+        """
+        msg = record.getMessage()
+        level = record.levelname
+
+        # Color coding based on activity type
+        if 'buy' in msg.lower() and 'signal' in msg.lower():
+            return f"[blue]💰[/blue] {msg}"
+        elif 'buy' in msg.lower() and 'order placed' in msg.lower():
+            return f"[green]✓ BUY[/green] {msg}"
+        elif 'sell' in msg.lower() and 'signal' in msg.lower():
+            return f"[yellow]📊[/yellow] {msg}"
+        elif 'sell' in msg.lower() and 'order placed' in msg.lower():
+            return f"[yellow]✓ SELL[/yellow] {msg}"
+        elif 'take profit' in msg.lower() or 'stop loss' in msg.lower():
+            return f"[magenta]🎯[/magenta] {msg}"
+        elif 'test trade' in msg.lower():
+            return f"[cyan]🧪[/cyan] {msg}"
+        elif 'resuming' in msg.lower() or 'position' in msg.lower():
+            return f"[blue]📌[/blue] {msg}"
+        elif 'virtual' in msg.lower() and 'executed' in msg.lower():
+            return f"[green]✓[/green] {msg}"
+        elif level == 'ERROR':
+            return f"[red]✗[/red] {msg}"
+        elif level == 'WARNING':
+            return f"[yellow]⚠[/yellow] {msg}"
+        else:
+            return f"[dim]•[/dim] {msg}"
+
 def setup_logger(name: str = 'trader', console_output: bool = True) -> logging.Logger:
     """Setup basic logging configuration
 
@@ -67,3 +148,16 @@ def add_tui_handler(callback: Callable[[str], None]) -> None:
     tui_handler = TUILogHandler(callback)
     tui_handler.setFormatter(fmt)
     logger.addHandler(tui_handler)
+
+
+def add_tui_activity_handler(callback: Callable[[str], None]) -> None:
+    """Add a TUI activity handler to capture important trading events
+
+    Args:
+        callback: Function to call with each activity message
+    """
+    logger = logging.getLogger('trader')
+
+    # Create and add activity handler (no formatter needed, handles own formatting)
+    activity_handler = TUIActivityHandler(callback)
+    logger.addHandler(activity_handler)

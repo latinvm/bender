@@ -178,12 +178,12 @@ class TradeDatabase:
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT market, entry_price, exit_price, amount, 
+                SELECT market, entry_price, exit_price, amount,
                        entry_time, exit_time, status, profit_loss
                 FROM trades
                 ORDER BY entry_time DESC
             ''')
-            
+
             trades = []
             for row in cursor.fetchall():
                 trades.append({
@@ -196,7 +196,55 @@ class TradeDatabase:
                     'status': row[6],
                     'profit_loss': row[7]
                 })
-            
+
             return trades
+        finally:
+            conn.close()
+
+    def get_trade_statistics(self) -> Dict:
+        """Get trading statistics summary
+
+        Returns:
+            Dict with keys: total_trades, winning_trades, losing_trades,
+            win_rate, avg_profit_loss, max_profit, max_loss
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Get closed trades statistics
+            cursor.execute('''
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losses,
+                    AVG(profit_loss) as avg_pl,
+                    MAX(profit_loss) as max_profit,
+                    MIN(profit_loss) as min_loss
+                FROM trades
+                WHERE status = 'CLOSED'
+            ''')
+
+            row = cursor.fetchone()
+
+            total_trades = row[0] or 0
+            winning_trades = row[1] or 0
+            losing_trades = row[2] or 0
+            avg_pl = row[3] or 0.0
+            max_profit = row[4] or 0.0
+            max_loss = row[5] or 0.0
+
+            # Calculate win rate
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+            return {
+                'total_trades': total_trades,
+                'winning_trades': winning_trades,
+                'losing_trades': losing_trades,
+                'win_rate': win_rate,
+                'avg_profit_loss': avg_pl,
+                'max_profit': max_profit,
+                'max_loss': max_loss
+            }
         finally:
             conn.close()
