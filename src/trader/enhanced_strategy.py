@@ -4,6 +4,7 @@ import pandas as pd
 import pandas_ta as ta
 from trader.market import MarketOperations
 from trader.database import TradeDatabase
+from typing import Dict, Optional
 
 logger = logging.getLogger('trader.enhanced_strategy')
 
@@ -16,6 +17,9 @@ class EnhancedStrategy:
         self.virtual_wallet = virtual_wallet
         self.positions = {}
         self.entry_prices = {}
+        # Price cache for TUI to avoid redundant API calls
+        self.last_price: Optional[float] = None
+        self.last_price_timestamp: Optional[float] = None
 
         # Load active positions
         # In virtual mode, load from virtual wallet; otherwise load from regular database
@@ -132,6 +136,30 @@ class EnhancedStrategy:
 
         return False
 
+    def get_current_price(self, use_cache: bool = True, cache_max_age: float = 30.0) -> Optional[float]:
+        """Get current price with optional caching
+
+        Args:
+            use_cache: If True, return cached price if fresh enough
+            cache_max_age: Maximum age of cache in seconds (default: 30s)
+
+        Returns:
+            Current price or None if unavailable
+        """
+        if use_cache and self.last_price is not None and self.last_price_timestamp is not None:
+            age = time.time() - self.last_price_timestamp
+            if age < cache_max_age:
+                return self.last_price
+
+        try:
+            ticker = self.market_ops.get_ticker(self.market)
+            self.last_price = float(ticker['price'])
+            self.last_price_timestamp = time.time()
+            return self.last_price
+        except Exception as e:
+            logger.error(f"Error fetching current price: {str(e)}")
+            return self.last_price  # Return stale cache if fetch fails
+
     def execute_trade(self):
         """Execute the trading strategy."""
         try:
@@ -140,8 +168,11 @@ class EnhancedStrategy:
 
             if self.should_buy(df) and self.market not in self.positions:
                 # Place buy order
-                ticker = self.market_ops.get_ticker(self.market)
-                current_price = float(ticker['price'])
+                current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
+                if current_price is None:
+                    logger.error("Cannot execute buy: price unavailable")
+                    return
+
                 amount = self.investment_amount / current_price
                 order = self.market_ops.place_market_order(self.market, 'buy', amount)
                 self.positions[self.market] = amount
@@ -151,14 +182,20 @@ class EnhancedStrategy:
 
             elif self.should_sell(df) and self.market in self.positions:
                 # Place sell order
-                ticker = self.market_ops.get_ticker(self.market)
-                current_price = float(ticker['price'])
+                current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
+                if current_price is None:
+                    logger.error("Cannot execute sell: price unavailable")
+                    return
+
                 amount = self.positions[self.market]
                 order = self.market_ops.place_market_order(self.market, 'sell', amount)
                 self.db.record_trade_exit(self.market, current_price)
                 del self.positions[self.market]
                 del self.entry_prices[self.market]
                 logger.info(f"Sell order placed for {amount:.8f} {self.market} at €{current_price:.6f}")
+            else:
+                # Not trading but still update price cache for TUI
+                self.get_current_price(use_cache=False)
 
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")

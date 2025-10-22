@@ -70,6 +70,22 @@ class MultiMarketStrategy:
 
         logger.info(f"\n{'='*80}\n")
 
+    def get_current_prices(self, use_cache: bool = True) -> Dict[str, float]:
+        """Get current prices for all markets
+
+        Args:
+            use_cache: If True, use cached prices from strategies (default: True)
+
+        Returns:
+            Dict mapping market -> current price
+        """
+        prices = {}
+        for market, strategy in self.strategies.items():
+            price = strategy.get_current_price(use_cache=use_cache)
+            if price is not None:
+                prices[market] = price
+        return prices
+
     def get_portfolio_summary(self) -> Dict:
         """Get summary of all positions across all markets"""
         total_positions = 0

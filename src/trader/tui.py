@@ -1,5 +1,6 @@
 """Terminal UI for Bender Trading Bot using Textual"""
 
+import logging
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.widgets import Header, Footer, Static, DataTable, RichLog
@@ -10,6 +11,8 @@ from trader.virtual_wallet import VirtualWallet
 from trader.database import TradeDatabase
 from trader.config import get_config
 from trader.logger import add_tui_handler
+
+logger = logging.getLogger('trader.tui')
 
 
 class BalancePanel(Static):
@@ -227,7 +230,7 @@ class BenderTUI(App):
         self.virtual_mode = virtual_mode
         self.wallet: Optional[VirtualWallet] = live_wallet
         self.db: Optional[TradeDatabase] = live_db
-        self.strategy = live_strategy  # Live strategy instance for real-time updates
+        self.strategy = live_strategy  # Live strategy instance (EnhancedStrategy or MultiMarketStrategy)
         self.update_interval = 5  # seconds
 
     def compose(self) -> ComposeResult:
@@ -334,9 +337,31 @@ class BenderTUI(App):
                 stats_panel.win_rate = 0.0
                 stats_panel.avg_pl = 0.0
 
-            # Update positions (using entry prices for now - could fetch live prices)
+            # Update positions with live prices from strategy cache
             positions_panel = self.query_one("#positions-panel", PositionsPanel)
-            prices = {pos['market']: pos['entry_price'] for pos in positions}
+
+            # Get current prices from strategy cache (avoids redundant API calls)
+            prices = {}
+            if self.strategy:
+                # Try to get cached prices from strategy
+                try:
+                    if hasattr(self.strategy, 'get_current_prices'):
+                        # MultiMarketStrategy - get all prices at once
+                        prices = self.strategy.get_current_prices(use_cache=True)
+                    elif hasattr(self.strategy, 'get_current_price'):
+                        # Single EnhancedStrategy
+                        market = self.strategy.market
+                        price = self.strategy.get_current_price(use_cache=True)
+                        if price is not None:
+                            prices[market] = price
+                except Exception as e:
+                    logger.error(f"Error getting cached prices: {str(e)}")
+
+            # Fill in any missing prices with entry prices as fallback
+            for pos in positions:
+                if pos['market'] not in prices:
+                    prices[pos['market']] = pos['entry_price']
+
             positions_panel.update_positions(positions, prices)
 
         except Exception as e:
