@@ -24,10 +24,12 @@ class EnhancedStrategy:
         else:
             active_positions = self.db.get_active_positions()
 
+        # Only load the position for THIS market (not all positions)
         for pos in active_positions:
-            self.positions[pos['market']] = pos['amount']
-            self.entry_prices[pos['market']] = pos['entry_price']
-            logger.info(f"Loaded active position: {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
+            if pos['market'] == self.market:
+                self.positions[pos['market']] = pos['amount']
+                self.entry_prices[pos['market']] = pos['entry_price']
+                logger.info(f"Loaded active position: {pos['amount']} {pos['market']} @ €{pos['entry_price']:.6f}")
 
     def get_historical_data(self, interval: str = '5m', limit: int = 100) -> pd.DataFrame:
         """Get historical data for the market."""

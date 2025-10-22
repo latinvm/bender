@@ -197,16 +197,27 @@ class MarketOperations:
                 raise APIConnectionError(f"Order value €{order_value:.2f} below minimum €{min_quote}")
                 
             logger.info("Order meets minimum requirements")
-            
-            # Round amount to market precision
-            precision = market_info.get('amountPrecision', 2)
-            rounded_amount = round(amount, precision)
-            
-            if rounded_amount != amount:
-                logger.info(f"Rounded order amount from {amount} to {rounded_amount} to match market precision")
 
-            # Format the amount to a string with the correct number of decimal places
-            formatted_amount = f'{rounded_amount:.{precision}f}'
+            # Round amount to market precision
+            # Bitvavo accepts either 2 or 8 decimal places based on the orderSizeIncrement
+            # We need to determine the proper precision from the increment value
+            order_size_increment = market_info.get('orderSizeIncrement', '0.00000001')
+
+            # Count decimal places in the increment to determine precision
+            if '.' in order_size_increment:
+                precision = len(order_size_increment.split('.')[1])
+            else:
+                precision = 0
+
+            # Round to the determined precision
+            rounded_amount = round(amount, precision)
+
+            # Format without trailing zeros
+            formatted_amount = f'{rounded_amount:.{precision}f}'.rstrip('0').rstrip('.')
+
+            if rounded_amount != amount:
+                logger.info(f"Rounded order amount from {amount:.12f} to {rounded_amount} (precision: {precision} decimals)")
+                logger.info(f"Formatted as: '{formatted_amount}'")
 
             order_payload = {
                 'amount': formatted_amount

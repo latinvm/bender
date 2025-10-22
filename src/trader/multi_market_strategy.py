@@ -20,9 +20,25 @@ class MultiMarketStrategy:
             virtual_wallet: Optional VirtualWallet instance for paper trading
         """
         self.market_ops = market_ops
-        self.markets = markets
         self.investment_per_market = investment_per_market
         self.virtual_wallet = virtual_wallet
+
+        # Check for existing positions (orphaned positions from previous runs)
+        if virtual_wallet is not None:
+            active_positions = virtual_wallet.get_active_positions()
+        else:
+            from trader.database import TradeDatabase
+            db = TradeDatabase()
+            active_positions = db.get_active_positions()
+
+        # Add any markets with existing positions that aren't in the markets list
+        orphaned_markets = [pos['market'] for pos in active_positions if pos['market'] not in markets]
+        if orphaned_markets:
+            logger.info(f"Found {len(orphaned_markets)} orphaned position(s) from previous runs: {', '.join(orphaned_markets)}")
+            logger.info("Adding these markets to continue managing existing positions")
+            markets = list(markets) + orphaned_markets
+
+        self.markets = markets
 
         # Create a strategy instance for each market
         self.strategies: Dict[str, EnhancedStrategy] = {}

@@ -124,40 +124,67 @@ BITVAVO_OPERATOR_ID=1 (64 bit integer)
 Test your strategies with virtual money using real Bitvavo market data:
 
 ```bash
-# Start virtual trading (uses real market data, virtual money)
+# Start virtual trading (logs to console)
 trader virtual
 
-# Or use the --virtual flag with trade command
-trader trade --virtual
+# Start virtual trading with live monitor (logs to file)
+trader virtual --monitor
+
+# Start fresh with reset wallet and live monitor
+trader virtual --monitor --reset
 
 # Show virtual trading statistics
-trader trade --show-stats
+trader virtual --stats
 
 # Reset virtual wallet to initial balance
-trader trade --reset-virtual
+trader virtual --reset
 ```
 
 **Why Use Virtual Trading?**
 - Test strategies risk-free with simulated trades
 - Uses real-time Bitvavo market data
 - Separate database tracks all virtual trades
-- Periodic portfolio updates showing P/L per position
+- Live terminal UI with `--monitor` flag
 - Perfect for learning and strategy optimization
 
 ### Real Trading
 
 To run the trading bot with real money:
 ```bash
+# Start real trading (logs to console)
 trader trade
+
+# Start real trading with live monitor (logs to file)
+trader trade --monitor
+
+# Show real trading statistics
+trader trade --stats
 ```
 
 ⚠️ **WARNING**: This uses real money! Test with virtual trading first.
 
+### Monitor Mode
+
+When you use the `--monitor` flag, Bender runs a beautiful live terminal UI:
+- **Real-time updates** - See trades happen instantly as the bot runs
+- **Live positions** - Watch your positions and P/L update every 5 seconds
+- **Trading statistics** - View win rate, total trades, and performance metrics
+- **Logs to file** - All output goes to `logs/YYYY-MM-DD.log` instead of console
+- **Interactive** - Press `r` to refresh, `q` to quit
+
+```bash
+# Virtual trading with live monitor
+trader virtual --monitor
+
+# Real trading with live monitor
+trader trade --monitor
+```
+
 ### Backtesting
 
-To run a backtest on historical data:
+Test strategies on historical data:
 ```bash
-trader backtest --market VET-EUR --start 2023-01-01 --end 2023-12-31
+trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 ```
 
 ## 💡 Contributing

@@ -15,9 +15,8 @@ from trader.virtual_market import VirtualMarketOperations
 from trader.multi_market_strategy import MultiMarketStrategy
 import time
 
-# Setup logging once at the application start
-setup_logger('trader')
-logger = logging.getLogger('trader.main')
+# Logger will be set up in main() based on --monitor flag
+logger = None
 
 def display_market_info(market_ops: MarketOperations, market: str) -> None:
     """Display comprehensive market information"""
@@ -233,27 +232,29 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
 
 def main():
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
-    parser.add_argument('command', nargs='?', default='trade', help="Command to run (trade, backtest, virtual, or monitor)")
-    parser.add_argument('--market', type=str, default='VET-EUR', help="Market to trade or backtest")
+    parser.add_argument('command', nargs='?', default='trade', help="Command to run: trade, virtual, or backtest")
+    parser.add_argument('--market', type=str, default='VET-EUR', help="Market for backtesting (e.g., VET-EUR)")
     parser.add_argument('--start', type=str, default='2023-01-01', help="Start date for backtesting (YYYY-MM-DD)")
     parser.add_argument('--end', type=str, default='2023-12-31', help="End date for backtesting (YYYY-MM-DD)")
-    parser.add_argument('--virtual', action='store_true', help="Enable virtual trading mode (paper trading)")
-    parser.add_argument('--reset-virtual', action='store_true', help="Reset virtual wallet to initial balance")
-    parser.add_argument('--show-stats', action='store_true', help="Show virtual trading statistics and exit")
+    parser.add_argument('--reset', action='store_true', help="Reset virtual wallet to initial balance (virtual mode only)")
+    parser.add_argument('--stats', action='store_true', help="Show trading statistics and exit")
+    parser.add_argument('--monitor', action='store_true', help="Show live terminal UI while trading (outputs logs to file)")
     args = parser.parse_args()
 
-    # Handle monitor command (Terminal UI)
-    if args.command == 'monitor':
-        logger.info("Starting Bender Terminal UI Monitor...")
-        from trader.tui import run_tui
-        # Check if we should monitor virtual or real mode
-        virtual_mode = args.virtual or True  # Default to virtual mode for monitoring
-        run_tui(virtual_mode=virtual_mode)
-        return
+    # Setup logger - disable console output if monitor is active
+    setup_logger('trader', console_output=not args.monitor)
+    global logger
+    logger = logging.getLogger('trader.main')
 
     if args.command == 'trade' or args.command == 'virtual':
-        # Enable virtual mode if command is 'virtual' or --virtual flag is set
-        virtual_mode = args.command == 'virtual' or args.virtual
+        # Determine mode based on command
+        virtual_mode = args.command == 'virtual'
+
+        # Validate that --reset only works with virtual mode
+        if args.reset and not virtual_mode:
+            logger.error("Error: --reset can only be used with 'trader virtual' command")
+            logger.error("Usage: trader virtual --reset")
+            return
 
         if virtual_mode:
             logger.info("Starting trader application in VIRTUAL TRADING MODE")
@@ -261,6 +262,10 @@ def main():
         else:
             logger.info("Starting trader application in REAL TRADING MODE")
             logger.info("⚠️  WARNING: Real trades will be executed with real money!")
+
+        if args.monitor:
+            logger.info("Monitor mode enabled - logs will be written to logs/ directory")
+            logger.info(f"Log file: logs/{time.strftime('%Y-%m-%d')}.log")
 
         try:
             # Initialize configurations
@@ -277,14 +282,16 @@ def main():
                     initial_balance=virtual_config.initial_balance
                 )
 
-                # Handle reset if requested
-                if args.reset_virtual:
+                # Handle reset if requested (before monitor starts)
+                reset_performed = False
+                if args.reset:
                     logger.info("Resetting virtual wallet...")
                     virtual_wallet.reset_wallet()
                     logger.info(f"Virtual wallet reset to €{virtual_wallet.get_balance():.2f}")
+                    reset_performed = True
 
                 # Show stats if requested
-                if args.show_stats:
+                if args.stats:
                     stats = virtual_wallet.get_statistics()
                     logger.info("\n" + "="*80)
                     logger.info("VIRTUAL TRADING STATISTICS")
@@ -328,6 +335,27 @@ def main():
                 db = TradeDatabase(db_config.db_path)
                 logger.info(f"Initialized trade database at {db_config.db_path}")
 
+                # Show stats if requested
+                if args.stats:
+                    logger.info("\n" + "="*80)
+                    logger.info("REAL TRADING STATISTICS")
+                    logger.info("="*80)
+
+                    # Show active positions
+                    active_positions = db.get_active_positions()
+                    if active_positions:
+                        logger.info(f"\nActive Positions: {len(active_positions)}")
+                        for pos in active_positions:
+                            logger.info(f"  • {pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
+                    else:
+                        logger.info("\nActive Positions: 0")
+
+                    # Show total P/L
+                    total_pl = db.get_total_profit_loss()
+                    logger.info(f"\nTotal P/L: €{total_pl:+.2f}")
+                    logger.info("="*80)
+                    return
+
                 # Show any active positions from previous runs
                 active_positions = db.get_active_positions()
                 if active_positions:
@@ -341,8 +369,9 @@ def main():
 
                 market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
-            # Find best markets to trade (top 3-5)
-            num_markets = 3 if virtual_mode else 1  # Virtual: 3 markets, Real: 1 market (safer)
+            # Find best markets to trade
+            # Both virtual and real mode use the same market discovery logic (top 3 markets)
+            num_markets = 3
             markets = find_best_markets(market_ops, top_n=num_markets)
             logger.info(f"Selected {len(markets)} market(s) for trading: {', '.join(markets)}")
 
@@ -371,10 +400,9 @@ def main():
                     return
                 logger.info("Test trade successful - starting main strategy")
 
-            # Determine strategy interval based on mode
-            # Virtual mode: faster interval for testing (60 seconds)
-            # Real mode: normal interval (300 seconds = 5 minutes)
-            strategy_interval = 60 if virtual_mode else 300
+            # Determine strategy interval
+            # Both virtual and real mode use the same interval (60 seconds) for consistent behavior
+            strategy_interval = 60
 
             # Create strategy based on number of markets
             # Pass virtual_wallet to strategies when in virtual mode
@@ -397,32 +425,64 @@ def main():
                     virtual_wallet=virtual_wallet if virtual_mode else None
                 )
 
-            # If virtual mode, wrap the strategy execution with periodic portfolio updates
-            if virtual_mode:
-                logger.info(f"Starting strategy with {strategy_interval}s interval and portfolio updates every 5 minutes...")
-                # Run strategy in a modified loop with portfolio updates
+            # Handle monitor mode
+            if args.monitor:
+                logger.info(f"Starting strategy with {strategy_interval}s interval with live TUI monitor...")
+
+                # Log reset status if it was performed (for TUI log panel)
+                if virtual_mode and reset_performed:
+                    logger.info("Note: Virtual wallet was reset to initial balance before starting")
+
                 import threading
+                from trader.tui import run_tui_with_data
 
-                def show_portfolio_periodically():
-                    """Show portfolio summary every 5 minutes"""
-                    while True:
-                        time.sleep(300)  # 5 minutes
-                        try:
-                            market_ops.show_portfolio_summary()
-                        except Exception as e:
-                            logger.error(f"Error showing portfolio: {e}")
+                # Run TUI in main thread, strategy in background thread
+                def run_strategy_in_background():
+                    """Run strategy in background thread"""
+                    try:
+                        strategy.run(interval=strategy_interval)
+                    except KeyboardInterrupt:
+                        logger.info("Strategy stopped by user")
+                    except Exception as e:
+                        logger.error(f"Strategy error: {e}")
 
-                # Start portfolio monitoring thread
-                portfolio_thread = threading.Thread(target=show_portfolio_periodically, daemon=True)
-                portfolio_thread.start()
+                # Start strategy in background thread
+                strategy_thread = threading.Thread(target=run_strategy_in_background, daemon=True)
+                strategy_thread.start()
 
-                # Show initial portfolio
-                market_ops.show_portfolio_summary()
+                # Run TUI in main thread (blocks until user quits)
+                # Pass live data sources to TUI
+                if virtual_mode:
+                    run_tui_with_data(virtual_mode=True, wallet=virtual_wallet, strategy=strategy)
+                else:
+                    run_tui_with_data(virtual_mode=False, db=db, strategy=strategy)
+
             else:
-                logger.info(f"Starting strategy with {strategy_interval}s interval...")
+                # No monitor - run strategy normally with optional portfolio updates
+                if virtual_mode:
+                    logger.info(f"Starting strategy with {strategy_interval}s interval and portfolio updates every 5 minutes...")
+                    import threading
 
-            # Run strategy
-            strategy.run(interval=strategy_interval)
+                    def show_portfolio_periodically():
+                        """Show portfolio summary every 5 minutes"""
+                        while True:
+                            time.sleep(300)  # 5 minutes
+                            try:
+                                market_ops.show_portfolio_summary()
+                            except Exception as e:
+                                logger.error(f"Error showing portfolio: {e}")
+
+                    # Start portfolio monitoring thread
+                    portfolio_thread = threading.Thread(target=show_portfolio_periodically, daemon=True)
+                    portfolio_thread.start()
+
+                    # Show initial portfolio
+                    market_ops.show_portfolio_summary()
+                else:
+                    logger.info(f"Starting strategy with {strategy_interval}s interval...")
+
+                # Run strategy
+                strategy.run(interval=strategy_interval)
 
         except AuthenticationError as e:
             logger.error(f"Authentication failed: {str(e)}")
