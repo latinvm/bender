@@ -90,10 +90,12 @@ def scan_all_markets_for_top_50(market_ops: MarketOperations, cache_duration_hou
     logger.info("STEP 1: Scanning ALL altcoins to find top 50 candidates")
     logger.info("=" * 80)
 
-    # Get ALL altcoins under €10
+    # Get ALL altcoins under configured max price
     logger.info("Fetching complete altcoin list...")
-    alt_coins = market_ops.list_alt_coins(max_price=10.0)
-    logger.info(f"Found {len(alt_coins)} total altcoins under €10")
+    from trader.config import get_config
+    _, _, _, strategy_config = get_config(load_env=False)  # Config already loaded
+    alt_coins = market_ops.list_alt_coins(max_price=strategy_config.max_coin_price)
+    logger.info(f"Found {len(alt_coins)} total altcoins under €{strategy_config.max_coin_price}")
 
     if not alt_coins:
         logger.warning("No altcoins found, using defaults")
@@ -184,8 +186,10 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
     # If no top_50_markets provided, use all altcoins (fallback to old behavior)
     if top_50_markets is None:
         logger.info("No pre-filtered markets provided, fetching all altcoins...")
-        alt_coins = market_ops.list_alt_coins(max_price=10.0)
-        logger.info(f"Found {len(alt_coins)} altcoins under €10")
+        from trader.config import get_config
+        _, _, _, strategy_config = get_config(load_env=False)  # Config already loaded
+        alt_coins = market_ops.list_alt_coins(max_price=strategy_config.max_coin_price)
+        logger.info(f"Found {len(alt_coins)} altcoins under €{strategy_config.max_coin_price}")
 
         if not alt_coins:
             logger.warning("No altcoins found, using defaults")
@@ -374,7 +378,7 @@ def main():
 
         try:
             # Initialize configurations
-            bitvavo_config, db_config, virtual_config = get_config()
+            bitvavo_config, db_config, virtual_config, strategy_config = get_config()
 
             # Initialize Bitvavo client
             client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
@@ -474,15 +478,15 @@ def main():
                 market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
             # 2-STEP MARKET SELECTION
-            # STEP 1: Scan all markets and get top 50 (cached for 6 hours)
+            # STEP 1: Scan all markets and get top 50 (cached for configured hours)
             logger.info("\n" + "=" * 80)
             logger.info("2-STEP MARKET SELECTION PROCESS")
             logger.info("=" * 80)
-            top_50_markets = scan_all_markets_for_top_50(market_ops, cache_duration_hours=6)
+            top_50_markets = scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
 
             # STEP 2: Detailed analysis on top 50 to select best markets
             num_markets = virtual_config.max_positions
-            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=30, top_50_markets=top_50_markets)
+            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=strategy_config.max_candidates, top_50_markets=top_50_markets)
 
             logger.info("\n" + "=" * 80)
             logger.info(f"FINAL SELECTION: {len(markets)} market(s) for trading")
@@ -514,21 +518,23 @@ def main():
                     return
                 logger.info("Test trade successful - starting main strategy")
 
-            # Determine strategy interval
-            # Both virtual and real mode use the same interval (60 seconds) for consistent behavior
-            strategy_interval = 60
+            # Determine strategy interval from configuration
+            # Both virtual and real mode use the same interval for consistent behavior
+            strategy_interval = strategy_config.strategy_interval
 
             # Create strategy based on number of markets
-            # Pass virtual_wallet to strategies when in virtual mode
+            # Pass virtual_wallet and strategy_config to strategies when in virtual mode
             if len(markets) > 1:
                 # Multi-market strategy
                 logger.info(f"Using multi-market strategy with {len(markets)} markets")
                 strategy = MultiMarketStrategy(
                     market_ops=market_ops,
                     markets=markets,
-                    investment_per_market=10.0,
+                    investment_per_market=strategy_config.trade_amount,
                     virtual_wallet=virtual_wallet if virtual_mode else None,
-                    max_positions=virtual_config.max_positions
+                    max_positions=virtual_config.max_positions,
+                    stop_loss_pct=strategy_config.stop_loss_pct,
+                    take_profit_pct=strategy_config.take_profit_pct
                 )
             else:
                 # Single market strategy
@@ -536,25 +542,27 @@ def main():
                 strategy = EnhancedStrategy(
                     market_ops=market_ops,
                     market=markets[0],
-                    investment_amount=10.0,
+                    investment_amount=strategy_config.trade_amount,
                     virtual_wallet=virtual_wallet if virtual_mode else None,
-                    max_positions=virtual_config.max_positions
+                    max_positions=virtual_config.max_positions,
+                    stop_loss_pct=strategy_config.stop_loss_pct,
+                    take_profit_pct=strategy_config.take_profit_pct
                 )
 
-            # Setup periodic market rescan (every 6 hours)
+            # Setup periodic market rescan (every configured hours)
             import threading
 
             def periodic_market_rescan():
                 """Periodically rescan all markets to refresh top 50 cache"""
                 while True:
-                    time.sleep(6 * 60 * 60)  # 6 hours
+                    time.sleep(strategy_config.market_cache_hours * 60 * 60)
                     try:
                         logger.info("\n" + "=" * 80)
-                        logger.info("PERIODIC MARKET RESCAN (every 6 hours)")
+                        logger.info(f"PERIODIC MARKET RESCAN (every {strategy_config.market_cache_hours} hours)")
                         logger.info("=" * 80)
                         # Force cache refresh by calling scan function
-                        # (cache will be automatically invalidated after 6 hours)
-                        scan_all_markets_for_top_50(market_ops, cache_duration_hours=6)
+                        # (cache will be automatically invalidated after configured hours)
+                        scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
                         logger.info("Market rescan completed - top 50 cache refreshed")
                         logger.info("=" * 80 + "\n")
                     except Exception as e:
@@ -563,7 +571,7 @@ def main():
             # Start periodic rescan thread
             rescan_thread = threading.Thread(target=periodic_market_rescan, daemon=True)
             rescan_thread.start()
-            logger.info("Started periodic market rescan thread (rescans every 6 hours)")
+            logger.info(f"Started periodic market rescan thread (rescans every {strategy_config.market_cache_hours} hours)")
 
             # Handle monitor mode
             if args.monitor:
@@ -633,7 +641,7 @@ def main():
 
     elif args.command == 'backtest':
         logger.info("Starting backtester")
-        bitvavo_config, _, _ = get_config()
+        bitvavo_config, _, _, strategy_config = get_config()
         client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
         market_ops = MarketOperations(client)
 

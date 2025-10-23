@@ -10,7 +10,7 @@ logger = logging.getLogger('trader.multi_market')
 class MultiMarketStrategy:
     """Run trading strategies across multiple markets simultaneously"""
 
-    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0, virtual_wallet=None, max_positions: int = 3):
+    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0):
         """Initialize multi-market strategy
 
         Args:
@@ -19,11 +19,15 @@ class MultiMarketStrategy:
             investment_per_market: Investment amount per market (default: €10)
             virtual_wallet: Optional VirtualWallet instance for paper trading
             max_positions: Maximum number of concurrent positions allowed (default: 3)
+            stop_loss_pct: Stop loss percentage (default: 5.0)
+            take_profit_pct: Take profit percentage (default: 15.0)
         """
         self.market_ops = market_ops
         self.investment_per_market = investment_per_market
         self.virtual_wallet = virtual_wallet
         self.max_positions = max_positions
+        self.stop_loss_pct = stop_loss_pct
+        self.take_profit_pct = take_profit_pct
 
         # Check for existing positions (orphaned positions from previous runs)
         if virtual_wallet is not None:
@@ -51,7 +55,9 @@ class MultiMarketStrategy:
                 market=market,
                 investment_amount=investment_per_market,
                 virtual_wallet=virtual_wallet,
-                max_positions=max_positions
+                max_positions=max_positions,
+                stop_loss_pct=stop_loss_pct,
+                take_profit_pct=take_profit_pct
             )
 
         logger.info(f"MultiMarketStrategy initialized with {len(markets)} markets")

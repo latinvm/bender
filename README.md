@@ -44,8 +44,8 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - Exits before major reversals
 
 **Automatic Risk Controls**
-- **Stop-Loss**: Sells at -5% to protect your capital
-- **Take-Profit**: Sells at +15% to secure gains
+- **Stop-Loss**: Sells at -5% by default (configurable via `STOP_LOSS_PCT`)
+- **Take-Profit**: Sells at +15% by default (configurable via `TAKE_PROFIT_PCT`)
 
 #### 🎲 Intelligent Market Selection
 
@@ -57,8 +57,8 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 
 #### 💼 Portfolio Management
 
-- **Multi-market trading**: Runs 3 markets simultaneously in virtual mode
-- **Smart position sizing**: €10 per position for controlled risk
+- **Multi-market trading**: Runs 3 markets simultaneously by default (configurable via `MAX_POSITIONS`)
+- **Smart position sizing**: €10 per position by default (configurable via `TRADE_AMOUNT`)
 - **Position tracking**: Real-time P/L monitoring per position
 - **Automatic minimum order handling**
 - **Complete trade history** with statistics
@@ -115,6 +115,40 @@ cp .env.example .env
 BITVAVO_API_KEY=your_api_key
 BITVAVO_API_SECRET=your_api_secret
 BITVAVO_OPERATOR_ID=1 (64 bit integer)
+```
+
+### 📊 Trading Strategy Settings
+
+All trading parameters can be customized via the `.env` file:
+
+```env
+# Trading Strategy Configuration
+TRADE_AMOUNT=10.0                # Amount in EUR to invest per position
+STOP_LOSS_PCT=5.0                # Stop loss percentage (e.g., 5.0 = -5%)
+TAKE_PROFIT_PCT=15.0             # Take profit percentage (e.g., 15.0 = +15%)
+MAX_COIN_PRICE=10.0              # Maximum coin price in EUR to consider
+STRATEGY_INTERVAL=60             # Seconds between strategy execution cycles
+MARKET_CACHE_HOURS=6             # Hours to cache top 50 market selections
+MAX_CANDIDATES=30                # Maximum markets to analyze in detail
+```
+
+**What These Settings Mean:**
+
+- **TRADE_AMOUNT**: How much EUR to invest per position (default: €10)
+- **STOP_LOSS_PCT**: Maximum loss before auto-selling (default: 5% = -5% loss)
+- **TAKE_PROFIT_PCT**: Target profit before auto-selling (default: 15% = +15% gain)
+- **MAX_COIN_PRICE**: Only trade coins under this price (default: €10)
+- **STRATEGY_INTERVAL**: How often to check for trading signals in seconds (default: 60)
+- **MARKET_CACHE_HOURS**: How long to cache market rankings (default: 6 hours)
+- **MAX_CANDIDATES**: Number of top markets to analyze deeply (default: 30)
+
+**Example Custom Configuration:**
+```env
+# More aggressive settings
+TRADE_AMOUNT=25.0
+STOP_LOSS_PCT=3.0
+TAKE_PROFIT_PCT=20.0
+STRATEGY_INTERVAL=30
 ```
 
 ## 🎮 Usage

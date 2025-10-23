@@ -18,6 +18,15 @@ class VirtualTradingConfig(NamedTuple):
     trading_fee_pct: float
     max_positions: int
 
+class TradingStrategyConfig(NamedTuple):
+    trade_amount: float
+    stop_loss_pct: float
+    take_profit_pct: float
+    max_coin_price: float
+    strategy_interval: int
+    market_cache_hours: int
+    max_candidates: int
+
 def get_project_root() -> Path:
     """Get project root directory (2 levels up from this file)"""
     return Path(__file__).parent.parent.parent
@@ -25,14 +34,14 @@ def get_project_root() -> Path:
 # Initialize PROJECT_ROOT lazily
 PROJECT_ROOT = None
 
-def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, VirtualTradingConfig]:
+def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, VirtualTradingConfig, TradingStrategyConfig]:
     """Get application configuration
 
     Args:
         load_env: Whether to load environment variables from .env file
 
     Returns:
-        Tuple of (BitvavoConfig, DatabaseConfig, VirtualTradingConfig)
+        Tuple of (BitvavoConfig, DatabaseConfig, VirtualTradingConfig, TradingStrategyConfig)
     """
     global PROJECT_ROOT
 
@@ -64,8 +73,18 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
     virtual_trading_fee = float(os.getenv('VIRTUAL_TRADING_FEE', '0.25'))
     max_positions = int(os.getenv('MAX_POSITIONS', '3'))
 
+    # Trading strategy configuration
+    trade_amount = float(os.getenv('TRADE_AMOUNT', '10.0'))
+    stop_loss_pct = float(os.getenv('STOP_LOSS_PCT', '5.0'))
+    take_profit_pct = float(os.getenv('TAKE_PROFIT_PCT', '15.0'))
+    max_coin_price = float(os.getenv('MAX_COIN_PRICE', '10.0'))
+    strategy_interval = int(os.getenv('STRATEGY_INTERVAL', '60'))
+    market_cache_hours = int(os.getenv('MARKET_CACHE_HOURS', '6'))
+    max_candidates = int(os.getenv('MAX_CANDIDATES', '30'))
+
     return (
         BitvavoConfig(api_key, api_secret, operator_id),
         DatabaseConfig(db_path),
-        VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee, max_positions)
+        VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee, max_positions),
+        TradingStrategyConfig(trade_amount, stop_loss_pct, take_profit_pct, max_coin_price, strategy_interval, market_cache_hours, max_candidates)
     )

@@ -24,7 +24,7 @@ class TradeDatabase:
         
         # Use provided path or get from config
         if db_path is None:
-            _, db_config, _ = get_config()
+            _, db_config, _, _ = get_config()
             self.db_path = db_config.db_path
         else:
             self.db_path = db_path

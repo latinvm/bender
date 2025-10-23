@@ -27,7 +27,7 @@ def test_enhanced_strategy_cache():
     logger.info("="*80)
 
     # Load config
-    bitvavo_config, _, virtual_config = get_config()
+    bitvavo_config, _, virtual_config, _ = get_config()
 
     # Initialize client and virtual wallet
     client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
@@ -99,7 +99,7 @@ def test_multi_market_strategy_cache():
     logger.info("="*80)
 
     # Load config
-    bitvavo_config, _, virtual_config = get_config()
+    bitvavo_config, _, virtual_config, _ = get_config()
 
     # Initialize client and virtual wallet
     client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
@@ -171,7 +171,7 @@ def test_tui_price_refresh():
     logger.info("="*80)
 
     # Load config
-    bitvavo_config, _, virtual_config = get_config()
+    bitvavo_config, _, virtual_config, _ = get_config()
 
     # Initialize client and virtual wallet
     client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)

@@ -9,13 +9,15 @@ from typing import Dict, Optional
 logger = logging.getLogger('trader.enhanced_strategy')
 
 class EnhancedStrategy:
-    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3):
+    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0):
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
         self.db = TradeDatabase()
         self.virtual_wallet = virtual_wallet
         self.max_positions = max_positions
+        self.stop_loss_pct = stop_loss_pct
+        self.take_profit_pct = take_profit_pct
         self.positions = {}
         self.entry_prices = {}
         # Price cache for TUI to avoid redundant API calls
@@ -148,12 +150,12 @@ class EnhancedStrategy:
             logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason
 
-        # Stop-loss and take-profit
-        if profit_percentage >= 15.0:
+        # Stop-loss and take-profit (use configured values)
+        if profit_percentage >= self.take_profit_pct:
             reason = f"Take Profit ({profit_percentage:+.2f}%)"
             logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason
-        elif profit_percentage <= -5.0:
+        elif profit_percentage <= -self.stop_loss_pct:
             reason = f"Stop Loss ({profit_percentage:+.2f}%)"
             logger.info(f"SELL SIGNAL TRIGGERED for {self.market} ({reason})")
             return True, reason

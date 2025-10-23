@@ -290,13 +290,13 @@ class BenderTUI(App):
         """Initialize when app starts"""
         # Initialize wallet or database if not provided (standalone mode)
         if self.virtual_mode and not self.wallet:
-            _, _, virtual_config = get_config()
+            _, _, virtual_config, _ = get_config()
             self.wallet = VirtualWallet(
                 db_path=virtual_config.virtual_db_path,
                 initial_balance=virtual_config.initial_balance
             )
         elif not self.virtual_mode and not self.db:
-            _, db_config, _ = get_config()
+            _, db_config, _, _ = get_config()
             self.db = TradeDatabase(db_path=db_config.db_path)
 
         # Set up log handlers to capture logs in the TUI

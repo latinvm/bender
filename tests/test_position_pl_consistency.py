@@ -29,7 +29,7 @@ def test_position_pl_consistency():
     logger.info("="*80)
 
     # Load config
-    bitvavo_config, _, virtual_config = get_config()
+    bitvavo_config, _, virtual_config, _ = get_config()
 
     # Initialize client and virtual wallet
     client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
