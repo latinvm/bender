@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 import argparse
 from trader.bitvavo import BitvavoClient
@@ -14,9 +14,13 @@ from trader.virtual_wallet import VirtualWallet
 from trader.virtual_market import VirtualMarketOperations
 from trader.multi_market_strategy import MultiMarketStrategy
 import time
+from datetime import datetime, timedelta
 
 # Logger will be set up in main() based on --monitor flag
 logger = None
+
+# Global cache for top 50 markets
+_top_50_cache: Optional[Dict] = None
 
 def display_market_info(market_ops: MarketOperations, market: str) -> None:
     """Display comprehensive market information"""
@@ -61,13 +65,108 @@ def calculate_sortino_ratio(returns, risk_free_rate=0.0):
         return 0.0
     return np.mean(excess_returns) / np.std(downside_returns)
 
-def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10) -> List[str]:
-    """Find the best markets based on volume, volatility, spread, and risk-adjusted returns
+def scan_all_markets_for_top_50(market_ops: MarketOperations, cache_duration_hours: int = 6) -> List[str]:
+    """STEP 1: Scan ALL altcoins and select top 50 by volume and basic metrics
+
+    This is a periodic, comprehensive scan that caches results for cache_duration_hours.
+
+    Args:
+        market_ops: MarketOperations instance
+        cache_duration_hours: How long to cache results (default: 6 hours)
+
+    Returns:
+        List of top 50 market symbols sorted by a basic score
+    """
+    global _top_50_cache
+
+    # Check if cache is valid
+    if _top_50_cache is not None:
+        cache_age = datetime.now() - _top_50_cache['timestamp']
+        if cache_age < timedelta(hours=cache_duration_hours):
+            logger.info(f"Using cached top 50 markets (age: {cache_age.total_seconds()/3600:.1f}h, expires in {cache_duration_hours - cache_age.total_seconds()/3600:.1f}h)")
+            return _top_50_cache['markets']
+
+    logger.info("=" * 80)
+    logger.info("STEP 1: Scanning ALL altcoins to find top 50 candidates")
+    logger.info("=" * 80)
+
+    # Get ALL altcoins under €10
+    logger.info("Fetching complete altcoin list...")
+    alt_coins = market_ops.list_alt_coins(max_price=10.0)
+    logger.info(f"Found {len(alt_coins)} total altcoins under €10")
+
+    if not alt_coins:
+        logger.warning("No altcoins found, using defaults")
+        return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR']
+
+    # Quick-score all markets based on volume and basic metrics
+    logger.info(f"Quick-scoring all {len(alt_coins)} markets...")
+    scored_markets = []
+
+    for i, coin in enumerate(alt_coins, 1):
+        if coin['status'] != 'trading':
+            continue
+
+        market = coin['market']
+
+        # Progress indicator every 50 markets
+        if i % 50 == 0:
+            logger.info(f"Progress: {i}/{len(alt_coins)} markets scanned...")
+
+        try:
+            # Get 24h ticker data (fast, single API call)
+            info = market_ops.get_detailed_market_info(market)
+
+            # Calculate basic score components
+            volume = info['volume_quote']  # Volume in EUR
+            volatility = ((info['high'] - info['low']) / info['low']) * 100 if info['low'] > 0 else 0
+
+            # Quick score: 70% volume, 30% volatility
+            # This is a fast pre-filter, detailed analysis happens in Step 2
+            volume_score = min(volume / 10000, 1.0)  # Normalize volume
+            volatility_score = min(volatility / 10, 1.0)  # Normalize volatility
+            quick_score = (volume_score * 0.7) + (volatility_score * 0.3)
+
+            scored_markets.append({
+                'market': market,
+                'score': quick_score,
+                'volume': volume,
+                'volatility': volatility
+            })
+
+        except Exception as e:
+            logger.debug(f"Error scoring {market}: {str(e)}")
+            continue
+
+    # Sort by score and take top 50
+    scored_markets = sorted(scored_markets, key=lambda x: x['score'], reverse=True)
+    top_50 = [m['market'] for m in scored_markets[:50]]
+
+    logger.info(f"\nSelected top 50 markets from {len(scored_markets)} candidates")
+    logger.info("Top 10 markets by quick-score:")
+    for i, market_data in enumerate(scored_markets[:10], 1):
+        logger.info(f"{i}. {market_data['market']}: score={market_data['score']:.3f}, volume=€{market_data['volume']:.0f}, vol={market_data['volatility']:.1f}%")
+
+    # Cache the results
+    _top_50_cache = {
+        'markets': top_50,
+        'timestamp': datetime.now(),
+        'detailed_data': scored_markets[:50]  # Store top 50 with details
+    }
+
+    logger.info(f"\nCached top 50 markets for {cache_duration_hours} hours")
+    logger.info("=" * 80)
+
+    return top_50
+
+def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10, top_50_markets: Optional[List[str]] = None) -> List[str]:
+    """STEP 2: Find the best markets from top 50 based on detailed analysis
 
     Args:
         market_ops: MarketOperations instance
         top_n: Number of top markets to return (default: 3)
         max_candidates: Maximum number of markets to analyze in detail (default: 10)
+        top_50_markets: Pre-filtered list of top 50 markets from Step 1 (optional)
 
     Returns:
         List of top market symbols (e.g., ['FLOKI-EUR', 'PEPE-EUR', 'SHIB-EUR'])
@@ -76,26 +175,32 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         - Added bid-ask spread filter (rejects >0.5% spread)
         - Added volume consistency check (penalizes pumps/dumps)
         - Reweighted scoring: Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
+        - Now uses pre-filtered top 50 markets from Step 1 for efficiency
     """
-    logger.info(f"Finding top {top_n} markets to trade...")
+    logger.info("=" * 80)
+    logger.info(f"STEP 2: Detailed analysis to find top {top_n} markets from candidates")
+    logger.info("=" * 80)
 
-    # Get all altcoins under €10
-    logger.info("Fetching altcoin list...")
-    alt_coins = market_ops.list_alt_coins(max_price=10.0)
-    logger.info(f"Found {len(alt_coins)} altcoins under €10")
+    # If no top_50_markets provided, use all altcoins (fallback to old behavior)
+    if top_50_markets is None:
+        logger.info("No pre-filtered markets provided, fetching all altcoins...")
+        alt_coins = market_ops.list_alt_coins(max_price=10.0)
+        logger.info(f"Found {len(alt_coins)} altcoins under €10")
 
-    if not alt_coins:
-        logger.warning("No altcoins found, using defaults")
-        return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR'][:top_n]
+        if not alt_coins:
+            logger.warning("No altcoins found, using defaults")
+            return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR'][:top_n]
 
-    # Pre-filter by getting 24h ticker data (fast) and select top candidates by volume
-    logger.info(f"Pre-filtering to top {max_candidates} candidates by volume...")
+        # Use the first 50 as candidates
+        candidate_markets = [coin['market'] for coin in alt_coins[:50] if coin['status'] == 'trading']
+    else:
+        logger.info(f"Using pre-filtered top 50 markets from cache")
+        candidate_markets = top_50_markets
+
+    # Get detailed info for candidates
+    logger.info(f"Fetching detailed info for {min(max_candidates, len(candidate_markets))} candidates...")
     candidates = []
-    for coin in alt_coins[:30]:  # Only check first 30 to avoid too many API calls
-        if coin['status'] != 'trading':
-            continue
-
-        market = coin['market']
+    for market in candidate_markets[:max_candidates]:  # Use pre-filtered markets
         try:
             info = market_ops.get_detailed_market_info(market)
             candidates.append({
@@ -109,7 +214,7 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
 
     # Sort by volume and take top candidates
     candidates = sorted(candidates, key=lambda x: x['volume_quote'], reverse=True)[:max_candidates]
-    logger.info(f"Analyzing top {len(candidates)} markets in detail...")
+    logger.info(f"Performing detailed analysis on {len(candidates)} markets...")
 
     # Store all scored markets
     scored_markets = []
@@ -368,11 +473,21 @@ def main():
 
                 market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
-            # Find best markets to trade
-            # Both virtual and real mode use the same market discovery logic (top 3 markets)
-            num_markets = 3
-            markets = find_best_markets(market_ops, top_n=num_markets)
-            logger.info(f"Selected {len(markets)} market(s) for trading: {', '.join(markets)}")
+            # 2-STEP MARKET SELECTION
+            # STEP 1: Scan all markets and get top 50 (cached for 6 hours)
+            logger.info("\n" + "=" * 80)
+            logger.info("2-STEP MARKET SELECTION PROCESS")
+            logger.info("=" * 80)
+            top_50_markets = scan_all_markets_for_top_50(market_ops, cache_duration_hours=6)
+
+            # STEP 2: Detailed analysis on top 50 to select best markets
+            num_markets = virtual_config.max_positions
+            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=30, top_50_markets=top_50_markets)
+
+            logger.info("\n" + "=" * 80)
+            logger.info(f"FINAL SELECTION: {len(markets)} market(s) for trading")
+            logger.info(f"Markets: {', '.join(markets)}")
+            logger.info("=" * 80 + "\n")
 
             # Display market information for first market
             display_market_info(market_ops, markets[0])
@@ -426,6 +541,30 @@ def main():
                     max_positions=virtual_config.max_positions
                 )
 
+            # Setup periodic market rescan (every 6 hours)
+            import threading
+
+            def periodic_market_rescan():
+                """Periodically rescan all markets to refresh top 50 cache"""
+                while True:
+                    time.sleep(6 * 60 * 60)  # 6 hours
+                    try:
+                        logger.info("\n" + "=" * 80)
+                        logger.info("PERIODIC MARKET RESCAN (every 6 hours)")
+                        logger.info("=" * 80)
+                        # Force cache refresh by calling scan function
+                        # (cache will be automatically invalidated after 6 hours)
+                        scan_all_markets_for_top_50(market_ops, cache_duration_hours=6)
+                        logger.info("Market rescan completed - top 50 cache refreshed")
+                        logger.info("=" * 80 + "\n")
+                    except Exception as e:
+                        logger.error(f"Error during periodic market rescan: {e}")
+
+            # Start periodic rescan thread
+            rescan_thread = threading.Thread(target=periodic_market_rescan, daemon=True)
+            rescan_thread.start()
+            logger.info("Started periodic market rescan thread (rescans every 6 hours)")
+
             # Handle monitor mode
             if args.monitor:
                 logger.info(f"Starting strategy with {strategy_interval}s interval with live TUI monitor...")
@@ -434,7 +573,6 @@ def main():
                 if virtual_mode and reset_performed:
                     logger.info("Note: Virtual wallet was reset to initial balance before starting")
 
-                import threading
                 from trader.tui import run_tui_with_data
 
                 # Run TUI in main thread, strategy in background thread
