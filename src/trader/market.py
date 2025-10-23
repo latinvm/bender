@@ -65,13 +65,16 @@ class MarketOperations:
     
     def get_ticker(self, market: str) -> Dict:
         """Get current ticker information"""
-        logger.info(f"Fetching ticker for {market}")
         try:
             ticker = self.client.bitvavo.tickerPrice({'market': market})
+            if ticker and 'price' in ticker:
+                logger.info(f"Fetching ticker for {market}: €{float(ticker['price']):.6f}")
+            else:
+                logger.info(f"Fetching ticker for {market} (no price data)")
             logger.debug(f"Retrieved ticker: {ticker}")
             return ticker
         except Exception as e:
-            logger.error(f"Error fetching ticker: {str(e)}")
+            logger.error(f"Error fetching ticker for {market}: {str(e)}")
             raise APIConnectionError(f"Failed to fetch ticker: {str(e)}") from e
 
     def monitor_price(self, market: str, interval: float = 5.0) -> None:

@@ -121,10 +121,19 @@ class EnhancedStrategy:
         upper_bb = last['BBU_20_2.0_2.0']
 
         entry_price = self.entry_prices[self.market]
-        profit_percentage = ((price - entry_price) / entry_price) * 100
 
-        logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
-        logger.info(f"{self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
+        # For P/L reporting, use current ticker price (not historical close price)
+        # This ensures consistency with what's shown in Active Positions pane
+        current_price = self.get_current_price(use_cache=True)
+        if current_price is not None:
+            profit_percentage = ((current_price - entry_price) / entry_price) * 100
+            logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
+            logger.info(f"{self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f}, Current: €{current_price:.6f})")
+        else:
+            # Fallback to historical close if current price unavailable
+            profit_percentage = ((price - entry_price) / entry_price) * 100
+            logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
+            logger.info(f"{self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
 
         # RELAXED Sell condition: RSI > 60 AND MACD bearish
         # This will exit positions earlier before major reversals

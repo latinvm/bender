@@ -40,6 +40,9 @@ class PositionsPanel(Static):
         """Update positions data"""
         self.positions = positions
         self.prices = prices
+        logger.debug(f"PositionsPanel: Updating {len(positions)} positions with {len(prices)} prices")
+        for market, price in prices.items():
+            logger.debug(f"  {market}: €{price:.6f}")
         self.refresh()
 
     def render(self) -> str:
@@ -366,29 +369,36 @@ class BenderTUI(App):
                 total_pl = self.db.get_total_profit_loss()
                 stats_panel.total_pl = total_pl
 
-            # Update positions with live prices from strategy cache
+            # Update positions with live prices from strategy
             positions_panel = self.query_one("#positions-panel", PositionsPanel)
 
-            # Get current prices from strategy cache (avoids redundant API calls)
+            # Get current prices from strategy with short cache (5s)
+            # This matches the TUI update interval, ensuring fresh prices on each refresh
+            # while avoiding excessive API calls
             prices = {}
             if self.strategy:
-                # Try to get cached prices from strategy
+                # Try to get prices from strategy with short cache window
                 try:
                     if hasattr(self.strategy, 'get_current_prices'):
-                        # MultiMarketStrategy - get all prices at once
-                        prices = self.strategy.get_current_prices(use_cache=True)
+                        # MultiMarketStrategy - get all prices at once with short cache
+                        prices = self.strategy.get_current_prices(use_cache=True, cache_max_age=5.0)
+                        logger.debug(f"TUI: Fetched {len(prices)} prices from MultiMarketStrategy")
                     elif hasattr(self.strategy, 'get_current_price'):
-                        # Single EnhancedStrategy
+                        # Single EnhancedStrategy - use short cache
                         market = self.strategy.market
-                        price = self.strategy.get_current_price(use_cache=True)
+                        price = self.strategy.get_current_price(use_cache=True, cache_max_age=5.0)
                         if price is not None:
                             prices[market] = price
+                            logger.debug(f"TUI: Fetched price for {market}: €{price:.6f}")
                 except Exception as e:
-                    logger.error(f"Error getting cached prices: {str(e)}")
+                    logger.error(f"Error getting prices: {str(e)}")
+            else:
+                logger.debug("TUI: No strategy available, will use entry prices")
 
             # Fill in any missing prices with entry prices as fallback
             for pos in positions:
                 if pos['market'] not in prices:
+                    logger.debug(f"TUI: Using entry price for {pos['market']}: €{pos['entry_price']:.6f}")
                     prices[pos['market']] = pos['entry_price']
 
             # Calculate unrealized P/L for active positions
@@ -397,9 +407,12 @@ class BenderTUI(App):
                 entry_value = pos['entry_price'] * pos['amount']
                 current_price = prices.get(pos['market'], pos['entry_price'])
                 current_value = current_price * pos['amount']
-                unrealized_pl += (current_value - entry_value)
+                pl = current_value - entry_value
+                unrealized_pl += pl
+                logger.debug(f"TUI P/L calc: {pos['market']} @ €{current_price:.6f} (entry €{pos['entry_price']:.6f}) = {pl:+.4f}")
 
             # Update stats panel with unrealized P/L
+            logger.debug(f"TUI: Total unrealized P/L = €{unrealized_pl:+.4f}")
             stats_panel.current_unrealized_pl = unrealized_pl
 
             positions_panel.update_positions(positions, prices)

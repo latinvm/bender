@@ -74,18 +74,19 @@ class MultiMarketStrategy:
 
         logger.info(f"\n{'='*80}\n")
 
-    def get_current_prices(self, use_cache: bool = True) -> Dict[str, float]:
+    def get_current_prices(self, use_cache: bool = True, cache_max_age: float = 30.0) -> Dict[str, float]:
         """Get current prices for all markets
 
         Args:
             use_cache: If True, use cached prices from strategies (default: True)
+            cache_max_age: Maximum age of cache in seconds (default: 30s)
 
         Returns:
             Dict mapping market -> current price
         """
         prices = {}
         for market, strategy in self.strategies.items():
-            price = strategy.get_current_price(use_cache=use_cache)
+            price = strategy.get_current_price(use_cache=use_cache, cache_max_age=cache_max_age)
             if price is not None:
                 prices[market] = price
         return prices

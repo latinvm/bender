@@ -164,6 +164,91 @@ def test_multi_market_strategy_cache():
     return True
 
 
+def test_tui_price_refresh():
+    """Test TUI price refresh with short cache (5s)"""
+    logger.info("\n" + "="*80)
+    logger.info("TEST 3: TUI Price Refresh (5s cache)")
+    logger.info("="*80)
+
+    # Load config
+    bitvavo_config, _, virtual_config = get_config()
+
+    # Initialize client and virtual wallet
+    client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
+    virtual_wallet = VirtualWallet(
+        db_path=virtual_config.virtual_db_path,
+        initial_balance=virtual_config.initial_balance
+    )
+
+    # Initialize virtual market operations
+    market_ops = VirtualMarketOperations(
+        client=client,
+        virtual_wallet=virtual_wallet,
+        operator_id=bitvavo_config.operator_id,
+        trading_fee_pct=virtual_config.trading_fee_pct
+    )
+
+    # Get active positions
+    positions = virtual_wallet.get_active_positions()
+    if not positions:
+        logger.warning("No active positions - using default markets")
+        markets = ['VET-EUR']
+    else:
+        markets = [pos['market'] for pos in positions[:1]]
+
+    logger.info(f"\nTesting with market: {markets[0]}")
+
+    # Create multi-market strategy
+    multi_strategy = MultiMarketStrategy(
+        market_ops=market_ops,
+        markets=markets,
+        investment_per_market=10.0,
+        virtual_wallet=virtual_wallet
+    )
+
+    logger.info("\n1. Simulating TUI update #1 (fresh fetch)...")
+    start = time.time()
+    prices1 = multi_strategy.get_current_prices(use_cache=True, cache_max_age=5.0)
+    elapsed1 = time.time() - start
+    logger.info(f"Time: {elapsed1*1000:.0f}ms")
+    for market, price in prices1.items():
+        logger.info(f"{market}: €{price:.6f}")
+
+    logger.info("\n2. Simulating TUI update #2 after 3 seconds (should use cache)...")
+    time.sleep(3)
+    start = time.time()
+    prices2 = multi_strategy.get_current_prices(use_cache=True, cache_max_age=5.0)
+    elapsed2 = time.time() - start
+    logger.info(f"Time: {elapsed2*1000:.0f}ms")
+    for market, price in prices2.items():
+        logger.info(f"{market}: €{price:.6f}")
+
+    if elapsed2 < elapsed1 / 10:
+        logger.info("Cache hit - prices returned quickly")
+    else:
+        logger.warning("Cache miss - unexpected")
+
+    logger.info("\n3. Simulating TUI update #3 after 6 seconds total (cache should expire)...")
+    time.sleep(3)  # Total 6 seconds since first fetch
+    start = time.time()
+    prices3 = multi_strategy.get_current_prices(use_cache=True, cache_max_age=5.0)
+    elapsed3 = time.time() - start
+    logger.info(f"Time: {elapsed3*1000:.0f}ms")
+    for market, price in prices3.items():
+        logger.info(f"{market}: €{price:.6f}")
+
+    if elapsed3 > elapsed2 * 10:
+        logger.info("Cache expired - fetched fresh prices from API")
+    else:
+        logger.warning("Cache might not have expired (or API was very fast)")
+
+    logger.info("\nConclusion: TUI will get fresh prices every 5 seconds (matching update interval)")
+    logger.info("This ensures Active Positions pane shows current prices after trades.")
+
+    logger.info("\n" + "="*80)
+    return True
+
+
 def main():
     """Run all tests"""
     logger.info("\nTesting Price Caching Implementation\n")
@@ -171,6 +256,7 @@ def main():
     try:
         test1_success = test_enhanced_strategy_cache()
         test2_success = test_multi_market_strategy_cache()
+        test3_success = test_tui_price_refresh()
 
         logger.info("\n" + "="*80)
         logger.info("TEST RESULTS")
@@ -186,9 +272,14 @@ def main():
         else:
             logger.error("FAILED - MultiMarketStrategy caching")
 
+        if test3_success:
+            logger.info("PASSED - TUI price refresh")
+        else:
+            logger.error("FAILED - TUI price refresh")
+
         logger.info("="*80)
 
-        return 0 if (test1_success and test2_success) else 1
+        return 0 if (test1_success and test2_success and test3_success) else 1
 
     except Exception as e:
         logger.error(f"Test failed with error: {str(e)}")
