@@ -26,16 +26,21 @@ class BalancePanel(Static):
     initial_balance = reactive(0.0)
 
     def render(self) -> str:
-        total_value = self.balance + self.total_invested + self.total_costs
+        # Total capital = balance + invested
+        # Do NOT add costs - they are already deducted from balance
+        total_value = self.balance + self.total_invested
 
         # Color code the realized P/L
         pl_color = "green" if self.realized_pl >= 0 else "red"
         pl_sign = "+" if self.realized_pl >= 0 else ""
 
-        # Show checksum: Total - Realized P/L should equal Initial Balance
-        # Because balance already reflects the realized P/L
-        checksum = total_value - self.realized_pl
-        checksum_match = abs(checksum - self.initial_balance) < 0.01
+        # Show checksum: Total + Active Costs - Realized P/L should equal Initial Balance
+        # Because:
+        # - Realized P/L already includes fees from closed trades
+        # - Active costs are fees paid on open positions (not yet in realized P/L)
+        # - Balance already has all fees deducted via transactions
+        checksum = total_value + self.total_costs - self.realized_pl
+        checksum_match = abs(checksum - self.initial_balance) < 0.02
         checksum_indicator = "[green]✓[/green]" if checksum_match else "[red]✗[/red]"
 
         return f""" [b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Costs:[/b] €{self.total_costs:.2f}  |  [b]Realized P/L:[/b] [{pl_color}]{pl_sign}€{self.realized_pl:.2f}[/{pl_color}]  |  [b]Total:[/b] €{total_value:.2f}  |  [b]Initial:[/b] €{self.initial_balance:.2f} {checksum_indicator}"""

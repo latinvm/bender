@@ -248,27 +248,7 @@ class VirtualWallet:
             if amount > position_amount:
                 return False, f"Trying to sell {amount:.8f} but only have {position_amount:.8f}"
 
-            # Calculate proceeds
-            total_proceeds = (price * amount) - fee
-
-            # Add to balance
-            balance = self.get_balance()
-            new_balance = balance + total_proceeds
-            self._update_balance(new_balance, conn)
-
-            # Calculate profit/loss
-            position_entry_value = entry_price * amount
-            profit_loss = total_proceeds - position_entry_value
-            profit_loss_pct = (profit_loss / position_entry_value) * 100
-
-            # Record transaction
-            cursor.execute('''
-                INSERT INTO transactions (transaction_type, amount, balance_before, balance_after, description, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', ('SELL', total_proceeds, balance, new_balance,
-                  f'Sell {amount:.8f} {market} @ €{price:.6f} (P/L: €{profit_loss:+.2f})', datetime.now()))
-
-            # Get current buy fee from the trade
+            # Get current buy fee from the trade (before calculating P/L)
             cursor.execute('''
                 SELECT fees FROM virtual_trades
                 WHERE market = ? AND status = 'ACTIVE'
@@ -277,8 +257,26 @@ class VirtualWallet:
             ''', (market,))
             buy_fee = cursor.fetchone()[0] or 0.0
 
-            # Update trade record with combined fees (buy fee + sell fee)
+            # Calculate proceeds
+            total_proceeds = (price * amount) - fee
+
+            # Add to balance
+            balance = self.get_balance()
+            new_balance = balance + total_proceeds
+            self._update_balance(new_balance, conn)
+
+            # Calculate profit/loss (including both buy and sell fees)
+            position_entry_value = entry_price * amount
             total_fees = buy_fee + fee
+            profit_loss = total_proceeds - position_entry_value - buy_fee
+            profit_loss_pct = (profit_loss / position_entry_value) * 100
+
+            # Record transaction
+            cursor.execute('''
+                INSERT INTO transactions (transaction_type, amount, balance_before, balance_after, description, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('SELL', total_proceeds, balance, new_balance,
+                  f'Sell {amount:.8f} {market} @ €{price:.6f} (P/L: €{profit_loss:+.2f})', datetime.now()))
             cursor.execute('''
                 UPDATE virtual_trades
                 SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?,
@@ -403,16 +401,20 @@ class VirtualWallet:
             conn.close()
 
     def get_total_costs(self) -> float:
-        """Get total costs (fees) from all trades
+        """Get total costs (fees) from active trades only
+
+        Note: Closed trade fees are already included in realized P/L,
+        so we only return fees from active positions to avoid double-counting.
 
         Returns:
-            Total costs/fees paid across all trades (both active and closed)
+            Total costs/fees paid on active positions
         """
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT COALESCE(SUM(fees), 0.0) FROM virtual_trades
+                WHERE status = 'ACTIVE'
             ''')
             return cursor.fetchone()[0]
         finally:
