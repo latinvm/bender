@@ -187,6 +187,22 @@ Test strategies on historical data:
 trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 ```
 
+## 🔧 Known Issues & Fixes
+
+### Bitvavo Rate Limit Bug (FIXED ✅)
+
+The upstream `python-bitvavo-api` library has a bug that causes `ValueError: sleep length must be non-negative`. This has been **fixed** in Bender with an automatic patch.
+
+**What was the issue?**
+```
+Exception in thread Thread-1:
+ValueError: sleep length must be non-negative
+```
+
+**Our solution:** Bender automatically patches the library on startup to handle this gracefully. No action needed from you!
+
+For technical details, see [docs/BITVAVO_RATE_LIMIT_FIX.md](docs/BITVAVO_RATE_LIMIT_FIX.md)
+
 ## 💡 Contributing
 
 Contributions are welcome! Feel free to:
