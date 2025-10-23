@@ -155,6 +155,8 @@ class ActivityPanel(Static):
             self.messages = self.messages[-self.max_messages:]
 
         self.refresh()
+        # Auto-scroll to bottom when new content is added
+        self.call_after_refresh(self.scroll_end)
 
     def render(self) -> str:
         header = "[b]Recent Activity[/b]\n" + "─" * 30 + "\n"
@@ -183,6 +185,8 @@ class LogPanel(Static):
                 self.log_lines = self.log_lines[-self.max_lines:]
 
             self.refresh()
+            # Auto-scroll to bottom when new content is added
+            self.call_after_refresh(self.scroll_end)
 
     def render(self) -> str:
         header = "[b]Live Trader Log[/b]\n" + "─" * 80 + "\n"
