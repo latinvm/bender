@@ -268,15 +268,25 @@ class VirtualWallet:
             ''', ('SELL', total_proceeds, balance, new_balance,
                   f'Sell {amount:.8f} {market} @ €{price:.6f} (P/L: €{profit_loss:+.2f})', datetime.now()))
 
-            # Update trade record
+            # Get current buy fee from the trade
             cursor.execute('''
-                UPDATE virtual_trades
-                SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?,
-                    profit_loss_pct = ?, exit_value = ?
+                SELECT fees FROM virtual_trades
                 WHERE market = ? AND status = 'ACTIVE'
                 ORDER BY entry_time ASC
                 LIMIT 1
-            ''', (price, datetime.now(), 'CLOSED', profit_loss, profit_loss_pct, price * amount, market))
+            ''', (market,))
+            buy_fee = cursor.fetchone()[0] or 0.0
+
+            # Update trade record with combined fees (buy fee + sell fee)
+            total_fees = buy_fee + fee
+            cursor.execute('''
+                UPDATE virtual_trades
+                SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?,
+                    profit_loss_pct = ?, exit_value = ?, fees = ?
+                WHERE market = ? AND status = 'ACTIVE'
+                ORDER BY entry_time ASC
+                LIMIT 1
+            ''', (price, datetime.now(), 'CLOSED', profit_loss, profit_loss_pct, price * amount, total_fees, market))
 
             # Remove or update position
             if amount >= position_amount:
@@ -387,6 +397,22 @@ class VirtualWallet:
             cursor.execute('''
                 SELECT COALESCE(SUM(profit_loss), 0.0) FROM virtual_trades
                 WHERE status = 'CLOSED'
+            ''')
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
+    def get_total_costs(self) -> float:
+        """Get total costs (fees) from all trades
+
+        Returns:
+            Total costs/fees paid across all trades (both active and closed)
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COALESCE(SUM(fees), 0.0) FROM virtual_trades
             ''')
             return cursor.fetchone()[0]
         finally:

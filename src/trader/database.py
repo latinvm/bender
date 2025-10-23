@@ -167,10 +167,21 @@ class TradeDatabase:
                 SELECT COALESCE(SUM(profit_loss), 0.0) FROM trades
                 WHERE status = 'CLOSED'
             ''')
-            
+
             return cursor.fetchone()[0]
         finally:
             conn.close()
+
+    def get_total_costs(self) -> float:
+        """Get total costs (fees) from all trades
+
+        Note: Real trading database doesn't track fees separately,
+        so this returns 0.0 for compatibility with TUI
+
+        Returns:
+            Total costs (always 0.0 for real trading)
+        """
+        return 0.0
 
     def get_trade_history(self) -> List[Dict]:
         """Get history of all trades"""

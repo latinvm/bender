@@ -21,11 +21,24 @@ class BalancePanel(Static):
 
     balance = reactive(0.0)
     total_invested = reactive(0.0)
+    total_costs = reactive(0.0)
+    realized_pl = reactive(0.0)
+    initial_balance = reactive(0.0)
 
     def render(self) -> str:
-        total_value = self.balance + self.total_invested
+        total_value = self.balance + self.total_invested + self.total_costs
 
-        return f"""[b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Total:[/b] €{total_value:.2f}"""
+        # Color code the realized P/L
+        pl_color = "green" if self.realized_pl >= 0 else "red"
+        pl_sign = "+" if self.realized_pl >= 0 else ""
+
+        # Show checksum: Total - Realized P/L should equal Initial Balance
+        # Because balance already reflects the realized P/L
+        checksum = total_value - self.realized_pl
+        checksum_match = abs(checksum - self.initial_balance) < 0.01
+        checksum_indicator = "[green]✓[/green]" if checksum_match else "[red]✗[/red]"
+
+        return f""" [b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Costs:[/b] €{self.total_costs:.2f}  |  [b]Realized P/L:[/b] [{pl_color}]{pl_sign}€{self.realized_pl:.2f}[/{pl_color}]  |  [b]Total:[/b] €{total_value:.2f}  |  [b]Initial:[/b] €{self.initial_balance:.2f} {checksum_indicator}"""
 
 
 class PositionsPanel(Static):
@@ -331,6 +344,7 @@ class BenderTUI(App):
             if self.virtual_mode and self.wallet:
                 # Virtual mode: use wallet
                 balance_panel.balance = self.wallet.get_balance()
+                balance_panel.initial_balance = self.wallet.get_initial_balance()
 
                 stats = self.wallet.get_statistics()
 
@@ -339,6 +353,14 @@ class BenderTUI(App):
                 # Calculate total invested
                 total_invested = sum(pos['entry_price'] * pos['amount'] for pos in positions)
                 balance_panel.total_invested = total_invested
+
+                # Get total costs (fees)
+                total_costs = self.wallet.get_total_costs()
+                balance_panel.total_costs = total_costs
+
+                # Get realized P/L from closed trades
+                realized_pl = self.wallet.get_total_profit_loss()
+                balance_panel.realized_pl = realized_pl
 
                 # Update stats
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
@@ -358,6 +380,15 @@ class BenderTUI(App):
                 total_invested = sum(pos['entry_price'] * pos['amount'] for pos in positions)
                 balance_panel.balance = 0  # Not tracked in real mode
                 balance_panel.total_invested = total_invested
+                balance_panel.initial_balance = 0  # Not tracked in real mode
+
+                # Get total costs (fees)
+                total_costs = self.db.get_total_costs()
+                balance_panel.total_costs = total_costs
+
+                # Get realized P/L from closed trades
+                realized_pl = self.db.get_total_profit_loss()
+                balance_panel.realized_pl = realized_pl
 
                 # Get real trading statistics from database
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
