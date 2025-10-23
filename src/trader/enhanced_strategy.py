@@ -78,7 +78,7 @@ class EnhancedStrategy:
         strong_oversold = rsi < 40
 
         # Signal 2: Moderate oversold + bullish momentum
-        moderate_oversold_with_momentum = (rsi < 55) and (macd > macd_signal)
+        moderate_oversold_with_momentum = (rsi < 50) and (macd > macd_signal)
 
         # Signal 3: Price near support with momentum
         near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal - 0.000001)
