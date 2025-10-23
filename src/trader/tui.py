@@ -11,27 +11,21 @@ from trader.virtual_wallet import VirtualWallet
 from trader.database import TradeDatabase
 from trader.config import get_config
 from trader.logger import add_tui_handler, add_tui_activity_handler
+from trader.formatting import format_currency, format_percentage, calculate_max_width
 
 logger = logging.getLogger('trader.tui')
 
 
 class BalancePanel(Static):
-    """Display current balance and overall P/L"""
+    """Display current balance and invested amounts"""
 
     balance = reactive(0.0)
-    initial_balance = reactive(0.0)
-    total_pl = reactive(0.0)
-    total_pl_pct = reactive(0.0)
     total_invested = reactive(0.0)
 
     def render(self) -> str:
-        pl_sign = "+" if self.total_pl >= 0 else ""
-        pl_color = "green" if self.total_pl >= 0 else "red"
-
         total_value = self.balance + self.total_invested
 
-        return f"""[b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Total:[/b] €{total_value:.2f}
-[b]Total P/L:[/b] [{pl_color}]{pl_sign}€{self.total_pl:.2f} ({pl_sign}{self.total_pl_pct:.2f}%)[/{pl_color}]  |  [b]Initial:[/b] €{self.initial_balance:.2f}"""
+        return f"""[b]Balance:[/b] €{self.balance:.2f}  |  [b]Invested:[/b] €{self.total_invested:.2f}  |  [b]Total:[/b] €{total_value:.2f}"""
 
 
 class PositionsPanel(Static):
@@ -49,33 +43,48 @@ class PositionsPanel(Static):
         self.refresh()
 
     def render(self) -> str:
-        header = "[b]Active Positions[/b]\n" + "─" * 76 + "\n"
+        header = "[b]Active Positions[/b]\n" + "─" * 76
 
         if not self.positions:
-            return header + "[dim]No active positions[/dim]"
+            return header + "\n[dim]No active positions[/dim]"
+
+        # First pass: calculate all P/L values to determine max widths
+        pl_values = []
+        for pos in self.positions:
+            entry_price = pos['entry_price']
+            current_price = self.prices.get(pos['market'], entry_price)
+            pl_pct = ((current_price - entry_price) / entry_price) * 100
+            pl_eur = (current_price - entry_price) * pos['amount']
+            pl_values.append((pl_pct, pl_eur))
+
+        # Calculate max widths for P/L columns
+        pct_width = calculate_max_width([pct for pct, _ in pl_values])
+        eur_width = calculate_max_width([eur for _, eur in pl_values])
 
         lines = [header]
         lines.append("[b]Market      Amount        Entry         Current       P/L %        P/L €[/b]")
         lines.append("─" * 76)
 
-        for pos in self.positions:
+        # Second pass: format with consistent widths
+        for pos, (pl_pct, pl_eur) in zip(self.positions, pl_values):
             market = pos['market']
             amount = pos['amount']
             entry_price = pos['entry_price']
             current_price = self.prices.get(market, entry_price)
 
-            # Calculate P/L
-            pl_pct = ((current_price - entry_price) / entry_price) * 100
-            pl_eur = (current_price - entry_price) * amount
-
             # Color coding
             pl_color = "green" if pl_pct >= 0 else "red"
-            pl_sign = "+" if pl_pct >= 0 else ""
+            pct_sign = "+" if pl_pct >= 0 else "-"
+            eur_sign = "+" if pl_eur >= 0 else "-"
 
             # Format market name (fixed width)
             market_short = market.replace('-EUR', '').ljust(8)
 
-            line = f"{market_short}  {amount:>12.2f}  €{entry_price:>10.6f}  €{current_price:>10.6f}  [{pl_color}]{pl_sign}{pl_pct:>6.2f}%[/{pl_color}]  [{pl_color}]{pl_sign}€{pl_eur:>7.2f}[/{pl_color}]"
+            # Format P/L with consistent widths
+            formatted_pct = format_percentage(pl_pct, pct_sign, pct_width)
+            formatted_eur = format_currency(pl_eur, eur_sign, eur_width)
+
+            line = f"{market_short}  {amount:>12.2f}  €{entry_price:>10.6f}  €{current_price:>10.6f}  [{pl_color}]{formatted_pct:>10}[/{pl_color}]  [{pl_color}]{formatted_eur:>10}[/{pl_color}]"
             lines.append(line)
 
         return "\n".join(lines)
@@ -89,21 +98,40 @@ class StatsPanel(Static):
     losing_trades = reactive(0)
     win_rate = reactive(0.0)
     avg_pl = reactive(0.0)
-    current_balance = reactive(0.0)
+    total_pl = reactive(0.0)
+    current_unrealized_pl = reactive(0.0)
     active_trades = reactive(0)
 
     def render(self) -> str:
         win_color = "green" if self.win_rate >= 50 else "yellow" if self.win_rate >= 40 else "red"
 
+        # Calculate max width for all P/L values to ensure consistent spacing
+        pl_values = [self.current_unrealized_pl, self.avg_pl, self.total_pl]
+        max_width = calculate_max_width(pl_values)
+
+        # Format P/L values with consistent widths
+        current_pl_color = "green" if self.current_unrealized_pl >= 0 else "red"
+        current_pl_sign = "+" if self.current_unrealized_pl >= 0 else "-"
+        formatted_current_pl = format_currency(self.current_unrealized_pl, current_pl_sign, max_width)
+
+        avg_pl_color = "green" if self.avg_pl >= 0 else "red"
+        avg_pl_sign = "+" if self.avg_pl >= 0 else "-"
+        formatted_avg_pl = format_currency(self.avg_pl, avg_pl_sign, max_width)
+
+        total_pl_color = "green" if self.total_pl >= 0 else "red"
+        total_pl_sign = "+" if self.total_pl >= 0 else "-"
+        formatted_total_pl = format_currency(self.total_pl, total_pl_sign, max_width)
+
         return f"""[b]Trading Statistics[/b]
 {'─' * 30}
-Current Balance:  €{self.current_balance:.2f}
 Active Trades:    {self.active_trades}
 Total Trades:     {self.total_trades}
 Winning Trades:   [green]{self.winning_trades}[/green]
 Losing Trades:    [red]{self.losing_trades}[/red]
 Win Rate:         [{win_color}]{self.win_rate:.1f}%[/{win_color}]
-Avg P/L:          €{self.avg_pl:.2f}"""
+Current P/L:      [{current_pl_color}]{formatted_current_pl}[/{current_pl_color}]
+Avg P/L:          [{avg_pl_color}]{formatted_avg_pl}[/{avg_pl_color}]
+Total P/L:        [{total_pl_color}]{formatted_total_pl}[/{total_pl_color}]"""
 
 
 class ActivityPanel(Static):
@@ -175,9 +203,8 @@ class BenderTUI(App):
     }
 
     #balance-panel {
-        height: 4;
+        height: 3;
         border: solid $primary;
-        padding: 1;
         margin: 1;
         background: $surface;
     }
@@ -200,7 +227,7 @@ class BenderTUI(App):
     #stats-panel {
         border: solid $secondary;
         padding: 1;
-        width: 50%;
+        width: 33%;
         height: 100%;
         background: $surface;
     }
@@ -208,7 +235,7 @@ class BenderTUI(App):
     #activity-panel {
         border: solid $success;
         padding: 1;
-        width: 50%;
+        width: 67%;
         height: 100%;
         background: $surface;
         overflow-y: auto;
@@ -297,10 +324,8 @@ class BenderTUI(App):
             if self.virtual_mode and self.wallet:
                 # Virtual mode: use wallet
                 balance_panel.balance = self.wallet.get_balance()
-                balance_panel.initial_balance = self.wallet.get_initial_balance()
 
                 stats = self.wallet.get_statistics()
-                balance_panel.total_pl = stats['total_realized_pl']
 
                 positions = self.wallet.get_active_positions()
 
@@ -308,20 +333,15 @@ class BenderTUI(App):
                 total_invested = sum(pos['entry_price'] * pos['amount'] for pos in positions)
                 balance_panel.total_invested = total_invested
 
-                # Calculate total P/L percentage
-                total_value = balance_panel.balance + total_invested
-                if balance_panel.initial_balance > 0:
-                    balance_panel.total_pl_pct = ((total_value - balance_panel.initial_balance) / balance_panel.initial_balance) * 100
-
                 # Update stats
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
-                stats_panel.current_balance = balance_panel.balance
                 stats_panel.active_trades = len(positions)
                 stats_panel.total_trades = stats['total_trades']
                 stats_panel.winning_trades = stats['winning_trades']
                 stats_panel.losing_trades = stats['losing_trades']
                 stats_panel.win_rate = stats['win_rate']
                 stats_panel.avg_pl = stats['avg_profit_loss']
+                stats_panel.total_pl = stats['total_realized_pl']
 
             else:
                 # Real mode: use database
@@ -330,17 +350,10 @@ class BenderTUI(App):
                 # Real trading doesn't track balance the same way - just show invested amount
                 total_invested = sum(pos['entry_price'] * pos['amount'] for pos in positions)
                 balance_panel.balance = 0  # Not tracked in real mode
-                balance_panel.initial_balance = 0
                 balance_panel.total_invested = total_invested
-
-                # Get total P/L from closed trades
-                total_pl = self.db.get_total_profit_loss()
-                balance_panel.total_pl = total_pl
-                balance_panel.total_pl_pct = 0  # Can't calculate without balance tracking
 
                 # Get real trading statistics from database
                 stats_panel = self.query_one("#stats-panel", StatsPanel)
-                stats_panel.current_balance = balance_panel.balance
                 stats_panel.active_trades = len(positions)
                 trade_stats = self.db.get_trade_statistics()
                 stats_panel.total_trades = trade_stats['total_trades']
@@ -348,6 +361,10 @@ class BenderTUI(App):
                 stats_panel.losing_trades = trade_stats['losing_trades']
                 stats_panel.win_rate = trade_stats['win_rate']
                 stats_panel.avg_pl = trade_stats['avg_profit_loss']
+
+                # Get total P/L from closed trades
+                total_pl = self.db.get_total_profit_loss()
+                stats_panel.total_pl = total_pl
 
             # Update positions with live prices from strategy cache
             positions_panel = self.query_one("#positions-panel", PositionsPanel)
@@ -373,6 +390,17 @@ class BenderTUI(App):
             for pos in positions:
                 if pos['market'] not in prices:
                     prices[pos['market']] = pos['entry_price']
+
+            # Calculate unrealized P/L for active positions
+            unrealized_pl = 0.0
+            for pos in positions:
+                entry_value = pos['entry_price'] * pos['amount']
+                current_price = prices.get(pos['market'], pos['entry_price'])
+                current_value = current_price * pos['amount']
+                unrealized_pl += (current_value - entry_value)
+
+            # Update stats panel with unrealized P/L
+            stats_panel.current_unrealized_pl = unrealized_pl
 
             positions_panel.update_positions(positions, prices)
 
