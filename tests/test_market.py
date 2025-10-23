@@ -25,7 +25,7 @@ def mock_bitvavo():
     # Setup basic successful responses
     mock.balance.return_value = [
         {'symbol': 'BTC', 'available': '1.0', 'inOrder': '0.0'},
-        {'symbol': 'EUR', 'available': '10000.0', 'inOrder': '0.0'}
+        {'symbol': 'EUR', 'available': '50000.0', 'inOrder': '0.0'}
     ]
     
     mock.markets.return_value = [
@@ -35,7 +35,8 @@ def mock_bitvavo():
             'base': 'BTC',
             'quote': 'EUR',
             'minOrderInBaseAsset': '0.0001',
-            'minOrderInQuoteAsset': '10.0'
+            'minOrderInQuoteAsset': '10.0',
+            'orderSizeIncrement': '0.00000001'
         }
     ]
     
@@ -228,15 +229,16 @@ def test_place_limit_order_no_operator_id(mock_client, mock_trade_db, mock_bitva
 def test_place_market_order(market_ops, mock_bitvavo):
     """Test market order placement"""
     order = market_ops.place_market_order('BTC-EUR', 'buy', 1.0)
-    
+
     # Verify market validation was performed
     mock_bitvavo.markets.assert_called_once() # This is called by get_market_info
     mock_bitvavo.tickerPrice.assert_called_once() # This is called by get_ticker for price check
+    # Balance check also calls balance
+    mock_bitvavo.balance.assert_called()
 
     # Construct expected payload
-    # Note: amount might be rounded, but for this test input 1.0, assume it's '1.0'
-    # The actual rounding logic is complex and tested implicitly if min_base allows 1.0
-    expected_payload = {'amount': '1.00'}
+    # Note: amount is '1' after stripping trailing zeros (1.00 -> 1)
+    expected_payload = {'amount': '1'}
     if market_ops.operator_id:
         expected_payload['operatorId'] = market_ops.operator_id
 
@@ -255,13 +257,16 @@ def test_place_market_order_no_operator_id(mock_client, mock_trade_db, mock_bitv
     # Reset mocks for markets and tickerPrice as they are called in place_market_order
     mock_bitvavo.markets.reset_mock()
     mock_bitvavo.tickerPrice.reset_mock()
+    mock_bitvavo.balance.reset_mock()
 
     order = ops.place_market_order('BTC-EUR', 'sell', 0.1)
 
     mock_bitvavo.markets.assert_called_once()
     mock_bitvavo.tickerPrice.assert_called_once()
+    # Balance check for sell order
+    mock_bitvavo.balance.assert_called()
 
-    expected_payload = {'amount': '0.10'} # Assuming 0.1 is valid and doesn't need rounding here
+    expected_payload = {'amount': '0.1'} # Trailing zeros stripped (0.10 -> 0.1)
     # operatorId should not be in the payload
     mock_bitvavo.placeOrder.assert_called_once_with(
         'BTC-EUR', 'sell', 'market', expected_payload
@@ -315,19 +320,26 @@ def test_list_alt_coins(market_ops, mock_bitvavo):
 
 def test_test_trade(market_ops, mock_bitvavo):
     """Test the test trade functionality"""
-    # Setup mock for get_available_balance after buy
-    market_ops.get_available_balance = Mock(return_value=0.001)
-    
+    # Mock balance to have sufficient EUR for the buy, and BTC for the sell
+    def mock_get_balance(symbol):
+        if symbol == 'EUR':
+            return 1000.0  # Sufficient EUR for buy
+        elif symbol == 'BTC':
+            return 0.001  # BTC balance after buy
+        return 0.0
+
+    market_ops.get_available_balance = Mock(side_effect=mock_get_balance)
+
     result = market_ops.test_trade('BTC-EUR')
-    
+
     assert result is True
     # Verify buy and sell orders were placed
     assert mock_bitvavo.placeOrder.call_count == 2
-    
+
     # First call should be buy
     buy_call = mock_bitvavo.placeOrder.call_args_list[0]
     assert buy_call[0][1] == 'buy'
-    
+
     # Second call should be sell
     sell_call = mock_bitvavo.placeOrder.call_args_list[1]
     assert sell_call[0][1] == 'sell'
@@ -340,8 +352,8 @@ def test_test_trade_failure(market_ops, mock_bitvavo):
     assert result is False
 
 def test_place_market_order_rounding(market_ops, mock_bitvavo):
-    """Test that place_market_order correctly rounds the amount based on amountPrecision."""
-    # Mock the market info to include amountPrecision
+    """Test that place_market_order correctly rounds the amount based on orderSizeIncrement."""
+    # Mock the market info to include orderSizeIncrement (code uses this, not amountPrecision)
     mock_bitvavo.markets.return_value = [
         {
             'market': 'BONK-EUR',
@@ -350,11 +362,15 @@ def test_place_market_order_rounding(market_ops, mock_bitvavo):
             'quote': 'EUR',
             'minOrderInBaseAsset': '1000',
             'minOrderInQuoteAsset': '5.0',
-            'amountPrecision': 2  # Specify precision for rounding
+            'orderSizeIncrement': '0.01'  # 2 decimal places
         }
     ]
     # Mock ticker price for BONK-EUR
     mock_bitvavo.tickerPrice.return_value = {'market': 'BONK-EUR', 'price': '0.00001281'}
+    # Mock sufficient EUR balance
+    mock_bitvavo.balance.return_value = [
+        {'symbol': 'EUR', 'available': '100.0', 'inOrder': '0.0'}
+    ]
 
     # Amount with more decimal places than allowed
     test_amount = 429285.0452700593
@@ -371,15 +387,15 @@ def test_place_market_order_rounding(market_ops, mock_bitvavo):
 
     assert actual_payload['amount'] == expected_rounded_amount
 
-@pytest.mark.parametrize("precision, amount, expected_format", [
-    (2, 123.456, "123.46"),
-    (5, 123.456789, "123.45679"),
-    (0, 123.456, "123"),
-    (2, 123.0, "123.00")
+@pytest.mark.parametrize("orderSizeIncrement, amount, expected_format", [
+    ('0.01', 123.456, "123.46"),
+    ('0.00001', 123.456789, "123.45679"),
+    ('1', 123.456, "123"),
+    ('0.01', 123.0, "123")  # Trailing zeros are stripped (123.00 -> 123)
 ])
-def test_place_market_order_amount_formatting(market_ops, mock_bitvavo, precision, amount, expected_format):
-    """Test that place_market_order correctly formats the amount string based on precision."""
-    # Mock market info to provide the specified precision
+def test_place_market_order_amount_formatting(market_ops, mock_bitvavo, orderSizeIncrement, amount, expected_format):
+    """Test that place_market_order correctly formats the amount string based on orderSizeIncrement."""
+    # Mock market info to provide the specified orderSizeIncrement (not amountPrecision)
     mock_bitvavo.markets.return_value = [
         {
             'market': 'TEST-EUR',
@@ -388,10 +404,14 @@ def test_place_market_order_amount_formatting(market_ops, mock_bitvavo, precisio
             'quote': 'EUR',
             'minOrderInBaseAsset': '1',
             'minOrderInQuoteAsset': '1',
-            'amountPrecision': precision
+            'orderSizeIncrement': orderSizeIncrement
         }
     ]
     mock_bitvavo.tickerPrice.return_value = {'market': 'TEST-EUR', 'price': '1.0'}
+    # Mock sufficient EUR balance
+    mock_bitvavo.balance.return_value = [
+        {'symbol': 'EUR', 'available': '1000.0', 'inOrder': '0.0'}
+    ]
 
     # Place the order
     market_ops.place_market_order('TEST-EUR', 'buy', amount)
@@ -401,3 +421,36 @@ def test_place_market_order_amount_formatting(market_ops, mock_bitvavo, precisio
 
     # Verify that the 'amount' in the payload is formatted correctly
     assert actual_payload['amount'] == expected_format
+
+def test_place_market_order_insufficient_eur_balance(market_ops, mock_bitvavo):
+    """Test that buy order fails gracefully when EUR balance is insufficient"""
+    # Mock insufficient EUR balance
+    mock_bitvavo.balance.return_value = [
+        {'symbol': 'EUR', 'available': '5.0', 'inOrder': '0.0'}  # Only €5
+    ]
+
+    # Try to buy 1 BTC (requires ~€30,075 including fees)
+    with pytest.raises(APIConnectionError) as exc_info:
+        market_ops.place_market_order('BTC-EUR', 'buy', 1.0)
+
+    # Verify the error message mentions insufficient balance
+    assert 'Insufficient EUR balance' in str(exc_info.value)
+    # Verify placeOrder was never called (failed before reaching API)
+    mock_bitvavo.placeOrder.assert_not_called()
+
+def test_place_market_order_insufficient_base_asset_balance(market_ops, mock_bitvavo):
+    """Test that sell order fails gracefully when base asset balance is insufficient"""
+    # Mock insufficient BTC balance
+    mock_bitvavo.balance.return_value = [
+        {'symbol': 'BTC', 'available': '0.01', 'inOrder': '0.0'},  # Only 0.01 BTC
+        {'symbol': 'EUR', 'available': '10000.0', 'inOrder': '0.0'}
+    ]
+
+    # Try to sell 1 BTC (only have 0.01)
+    with pytest.raises(APIConnectionError) as exc_info:
+        market_ops.place_market_order('BTC-EUR', 'sell', 1.0)
+
+    # Verify the error message mentions insufficient balance
+    assert 'Insufficient BTC balance' in str(exc_info.value)
+    # Verify placeOrder was never called (failed before reaching API)
+    mock_bitvavo.placeOrder.assert_not_called()

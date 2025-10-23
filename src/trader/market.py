@@ -169,21 +169,51 @@ class MarketOperations:
             market_info = self.get_market_info(market)
             if market_info['status'] != 'trading':
                 raise APIConnectionError(f"Market {market} is not available for trading")
-                
+
             # Log market requirements
             logger.info("\n=== Market Requirements ===")
             logger.info(f"Market: {market}")
             logger.info(f"Min Base Asset: {market_info.get('minOrderInBaseAsset')} {market_info['base']}")
             logger.info(f"Min Quote Asset: {market_info.get('minOrderInQuoteAsset')} EUR")
-            
+
             # Get minimum order sizes
             min_base = float(market_info.get('minOrderInBaseAsset', '0'))
             min_quote = float(market_info.get('minOrderInQuoteAsset', '0'))
-            
+
             # Get current price for quote calculations
             ticker = self.get_ticker(market)
             current_price = float(ticker['price'])
-            
+
+            # Check balance for BUY orders (verify EUR balance)
+            if side.lower() == 'buy':
+                # Calculate required EUR amount (including estimated fee of 0.25%)
+                estimated_fee_pct = 0.0025  # 0.25%
+                order_value = amount * current_price
+                estimated_fee = order_value * estimated_fee_pct
+                total_required = order_value + estimated_fee
+
+                # Get available EUR balance
+                available_eur = self.get_available_balance('EUR')
+
+                logger.info(f"Balance Check: Need €{total_required:.2f} (€{order_value:.2f} + €{estimated_fee:.4f} fee), Available: €{available_eur:.2f}")
+
+                if available_eur < total_required:
+                    error_msg = f"Insufficient EUR balance. Need €{total_required:.2f}, have €{available_eur:.2f}"
+                    logger.error(error_msg)
+                    raise APIConnectionError(error_msg)
+
+            # Check balance for SELL orders (verify base asset balance)
+            elif side.lower() == 'sell':
+                base_asset = market_info['base']
+                available_base = self.get_available_balance(base_asset)
+
+                logger.info(f"Balance Check: Need {amount:.8f} {base_asset}, Available: {available_base:.8f} {base_asset}")
+
+                if available_base < amount:
+                    error_msg = f"Insufficient {base_asset} balance. Need {amount:.8f}, have {available_base:.8f}"
+                    logger.error(error_msg)
+                    raise APIConnectionError(error_msg)
+
             # Calculate order value in quote currency (EUR)
             order_value = amount * current_price
             
