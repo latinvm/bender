@@ -241,7 +241,7 @@ class BenderTUI(App):
         """Create child widgets"""
         mode = "VIRTUAL" if self.virtual_mode else "REAL"
         yield Header(show_clock=True)
-        yield Static(f"Bender Trading Bot - {mode} MODE", id="title")
+        yield Static(f"🤖 Bender Trading Bot - {mode} MODE", id="title")
         yield BalancePanel(id="balance-panel")
         yield PositionsPanel(id="positions-panel")
 
