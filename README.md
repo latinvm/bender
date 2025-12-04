@@ -1,6 +1,6 @@
-# 🤖 Bender Trading Bot
+# 🤖 Bender - Automated Cryptocurrency Trading Bot for Bitvavo
 
-Welcome to Bender - Your Friendly Cryptocurrency Trading Assistant!
+An open-source crypto trading bot that automates your trading on the [Bitvavo](https://bitvavo.com/invite?a=00B4208D84) exchange. Bender uses technical analysis (RSI, MACD, Bollinger Bands) to execute trades 24/7, featuring multi-market portfolio management, risk controls, and both paper trading and live trading modes.
 
 ## 🧪 A Vibe Coding Origin Story
 
@@ -97,7 +97,7 @@ Using my referral link above helps support Bender's development while giving you
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/bender.git
+git clone https://github.com/latinvm/bender.git
 cd bender
 
 # Create and activate a virtual environment
