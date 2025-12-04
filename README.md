@@ -1,6 +1,12 @@
 # 🤖 Bender Trading Bot
 
-Welcome to Bender - Your Friendly Cryptocurrency Trading Assistant! 
+Welcome to Bender - Your Friendly Cryptocurrency Trading Assistant!
+
+## 🧪 A Vibe Coding Origin Story
+
+Bender started as my first "vibe coding" experiment. What began as copy-pasting functions and classes through Claude's chat interface—iterating piece by piece, asking "can you add this?" and "what if we did that?"—has evolved into a fully-fledged trading bot built with [Claude Code](https://github.com/anthropics/claude-code).
+
+The journey from scattered code snippets in a chat window to a structured project with proper testing, architecture, and documentation has been a testament to how AI-assisted development is changing the way we build software. This project represents the full spectrum: from the earliest days of prompting for individual functions, to now having an AI pair programmer that understands the entire codebase.
 
 ## 🌟 Why Bender?
 
