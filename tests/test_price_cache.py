@@ -89,7 +89,10 @@ def test_enhanced_strategy_cache():
         logger.warning("Cache might not have expired properly")
 
     logger.info("\n" + "="*80)
-    return True
+    # Test passes if we got valid prices
+    assert price1 is not None
+    assert price2 is not None
+    assert price3 is not None
 
 
 def test_multi_market_strategy_cache():
@@ -161,7 +164,9 @@ def test_multi_market_strategy_cache():
         logger.warning("Some prices differ (might be due to market movement)")
 
     logger.info("\n" + "="*80)
-    return True
+    # Test passes if we got prices for all markets
+    assert len(prices1) > 0
+    assert len(prices2) > 0
 
 
 def test_tui_price_refresh():
@@ -246,7 +251,10 @@ def test_tui_price_refresh():
     logger.info("This ensures Active Positions pane shows current prices after trades.")
 
     logger.info("\n" + "="*80)
-    return True
+    # Test passes if we got prices
+    assert len(prices1) > 0
+    assert len(prices2) > 0
+    assert len(prices3) > 0
 
 
 def main():

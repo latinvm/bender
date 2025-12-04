@@ -55,7 +55,7 @@ def sample_markets():
 class TestMultiMarketStrategyInitialization:
     """Test MultiMarketStrategy initialization"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_init_basic(self, mock_db_class, mock_market_ops, sample_markets):
         """Test basic initialization with default parameters"""
         mock_db = Mock()
@@ -75,7 +75,7 @@ class TestMultiMarketStrategyInitialization:
         assert strategy.take_profit_pct == 15.0
         assert len(strategy.strategies) == 3
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_init_custom_parameters(self, mock_db_class, mock_market_ops, sample_markets):
         """Test initialization with custom parameters"""
         mock_db = Mock()
@@ -96,7 +96,7 @@ class TestMultiMarketStrategyInitialization:
         assert strategy.stop_loss_pct == 10.0
         assert strategy.take_profit_pct == 25.0
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_init_creates_strategy_instances(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that strategy instances are created for each market"""
         mock_db = Mock()
@@ -115,7 +115,7 @@ class TestMultiMarketStrategyInitialization:
             assert market in strategy.strategies
             assert isinstance(strategy.strategies[market], EnhancedStrategy)
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_init_with_virtual_wallet(self, mock_db_class, mock_market_ops, mock_virtual_wallet, sample_markets):
         """Test initialization with virtual wallet"""
         strategy = MultiMarketStrategy(
@@ -129,7 +129,7 @@ class TestMultiMarketStrategyInitialization:
         # Should call virtual wallet, not database
         mock_virtual_wallet.get_active_positions.assert_called()
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_init_empty_markets_list(self, mock_db_class, mock_market_ops):
         """Test initialization with empty markets list"""
         mock_db = Mock()
@@ -149,7 +149,7 @@ class TestMultiMarketStrategyInitialization:
 class TestOrphanedPositionDetection:
     """Test detection and handling of orphaned positions"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_orphaned_position_detection_adds_market(self, mock_db_class, mock_market_ops):
         """Test that orphaned positions are detected and their markets added"""
         mock_db = Mock()
@@ -175,7 +175,7 @@ class TestOrphanedPositionDetection:
         assert 'ORPHAN-EUR' in strategy.strategies
         assert len(strategy.markets) == 3  # Original 2 + 1 orphaned
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_orphaned_position_detection_multiple(self, mock_db_class, mock_market_ops):
         """Test detection of multiple orphaned positions"""
         mock_db = Mock()
@@ -198,7 +198,7 @@ class TestOrphanedPositionDetection:
         assert 'ORPHAN2-EUR' in strategy.markets
         assert len(strategy.markets) == 4  # Original 2 + 2 orphaned
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_no_orphaned_positions(self, mock_db_class, mock_market_ops):
         """Test when there are no orphaned positions"""
         mock_db = Mock()
@@ -240,7 +240,7 @@ class TestOrphanedPositionDetection:
 class TestPositionLimitEnforcement:
     """Test portfolio-wide position limit enforcement"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_position_limit_passed_to_strategies(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that position limit is passed to all strategies"""
         mock_db = Mock()
@@ -258,7 +258,7 @@ class TestPositionLimitEnforcement:
         for market_strategy in strategy.strategies.values():
             assert market_strategy.max_positions == 5
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_default_position_limit(self, mock_db_class, mock_market_ops, sample_markets):
         """Test default position limit of 3"""
         mock_db = Mock()
@@ -279,7 +279,7 @@ class TestPositionLimitEnforcement:
 class TestStrategyInstanceCreation:
     """Test strategy instance creation for each market"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_strategy_instances_have_correct_markets(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that each strategy instance is assigned the correct market"""
         mock_db = Mock()
@@ -295,7 +295,7 @@ class TestStrategyInstanceCreation:
         for market in sample_markets:
             assert strategy.strategies[market].market == market
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_strategy_instances_share_market_ops(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that all strategy instances share the same market_ops"""
         mock_db = Mock()
@@ -311,7 +311,7 @@ class TestStrategyInstanceCreation:
         for market_strategy in strategy.strategies.values():
             assert market_strategy.market_ops is mock_market_ops
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_strategy_instances_have_same_investment_amount(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that all strategies have the same investment amount"""
         mock_db = Mock()
@@ -327,7 +327,7 @@ class TestStrategyInstanceCreation:
         for market_strategy in strategy.strategies.values():
             assert market_strategy.investment_amount == 15.0
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_strategy_instances_have_custom_stop_loss_take_profit(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that custom stop-loss and take-profit are passed to strategies"""
         mock_db = Mock()
@@ -350,7 +350,7 @@ class TestStrategyInstanceCreation:
 class TestExecuteAllTrades:
     """Test executing trades across all markets"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_execute_all_trades_calls_all_strategies(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that execute_all_trades calls execute_trade for all strategies"""
         mock_db = Mock()
@@ -373,7 +373,7 @@ class TestExecuteAllTrades:
         for market in sample_markets:
             strategy.strategies[market].execute_trade.assert_called_once()
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_execute_all_trades_handles_exceptions(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that exceptions in one market don't stop others"""
         mock_db = Mock()
@@ -398,7 +398,7 @@ class TestExecuteAllTrades:
         strategy.strategies['ETH-EUR'].execute_trade.assert_called_once()
         strategy.strategies['ADA-EUR'].execute_trade.assert_called_once()
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_execute_all_trades_empty_markets(self, mock_db_class, mock_market_ops):
         """Test execute_all_trades with no markets"""
         mock_db = Mock()
@@ -418,7 +418,7 @@ class TestExecuteAllTrades:
 class TestPriceCaching:
     """Test price caching across multiple markets"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_get_current_prices_all_markets(self, mock_db_class, mock_market_ops, sample_markets):
         """Test getting current prices for all markets"""
         mock_db = Mock()
@@ -444,7 +444,7 @@ class TestPriceCaching:
             'ADA-EUR': 1.0
         }
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_get_current_prices_with_cache(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that cache parameter is passed to strategies"""
         mock_db = Mock()
@@ -470,7 +470,7 @@ class TestPriceCaching:
                 cache_max_age=60.0
             )
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_get_current_prices_excludes_none_values(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that None prices are excluded from results"""
         mock_db = Mock()
@@ -501,12 +501,14 @@ class TestPriceCaching:
 class TestPortfolioSummary:
     """Test portfolio summary functionality"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
-    def test_get_portfolio_summary_no_positions(self, mock_db_class, mock_market_ops, sample_markets):
+    @patch('trader.enhanced_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
+    def test_get_portfolio_summary_no_positions(self, mock_db_class, mock_es_db_class, mock_market_ops, sample_markets):
         """Test portfolio summary with no active positions"""
         mock_db = Mock()
         mock_db.get_active_positions.return_value = []
         mock_db_class.return_value = mock_db
+        mock_es_db_class.return_value = mock_db
 
         strategy = MultiMarketStrategy(
             market_ops=mock_market_ops,
@@ -521,12 +523,14 @@ class TestPortfolioSummary:
         assert summary['active_markets'] == []
         assert summary['max_capital'] == 30.0  # 10 * 3
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
-    def test_get_portfolio_summary_with_positions(self, mock_db_class, mock_market_ops, sample_markets):
+    @patch('trader.enhanced_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
+    def test_get_portfolio_summary_with_positions(self, mock_db_class, mock_es_db_class, mock_market_ops, sample_markets):
         """Test portfolio summary with active positions"""
         mock_db = Mock()
         mock_db.get_active_positions.return_value = []
         mock_db_class.return_value = mock_db
+        mock_es_db_class.return_value = mock_db
 
         strategy = MultiMarketStrategy(
             market_ops=mock_market_ops,
@@ -547,12 +551,14 @@ class TestPortfolioSummary:
         assert 'ETH-EUR' in summary['active_markets']
         assert 'ADA-EUR' not in summary['active_markets']
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
-    def test_get_portfolio_summary_max_capital_calculation(self, mock_db_class, mock_market_ops):
+    @patch('trader.enhanced_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
+    def test_get_portfolio_summary_max_capital_calculation(self, mock_db_class, mock_es_db_class, mock_market_ops):
         """Test max capital calculation in portfolio summary"""
         mock_db = Mock()
         mock_db.get_active_positions.return_value = []
         mock_db_class.return_value = mock_db
+        mock_es_db_class.return_value = mock_db
 
         markets = ['BTC-EUR', 'ETH-EUR', 'ADA-EUR', 'DOT-EUR', 'XRP-EUR']
         strategy = MultiMarketStrategy(
@@ -570,7 +576,7 @@ class TestPortfolioSummary:
 class TestRunLoop:
     """Test the main run loop"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     @patch('trader.multi_market_strategy.time.sleep')
     def test_run_executes_trades_periodically(self, mock_sleep, mock_db_class, mock_market_ops, sample_markets):
         """Test that run loop executes trades periodically"""
@@ -598,7 +604,7 @@ class TestRunLoop:
         # Should have called execute_all_trades at least once
         strategy.execute_all_trades.assert_called()
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     @patch('trader.multi_market_strategy.time.sleep')
     def test_run_uses_custom_interval(self, mock_sleep, mock_db_class, mock_market_ops, sample_markets):
         """Test that custom interval is used"""
@@ -623,7 +629,7 @@ class TestRunLoop:
         # Should have called sleep with custom interval
         mock_sleep.assert_called_with(120)
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_run_handles_keyboard_interrupt(self, mock_db_class, mock_market_ops, sample_markets):
         """Test that run handles KeyboardInterrupt gracefully"""
         mock_db = Mock()
@@ -646,7 +652,7 @@ class TestRunLoop:
 class TestIntegration:
     """Integration tests for multi-market strategy"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_full_workflow_no_virtual_wallet(self, mock_db_class, mock_market_ops):
         """Test complete workflow without virtual wallet"""
         mock_db = Mock()
@@ -695,7 +701,7 @@ class TestIntegration:
         summary = strategy.get_portfolio_summary()
         assert summary['total_markets'] == 2
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_workflow_with_orphaned_positions(self, mock_db_class, mock_market_ops):
         """Test workflow when orphaned positions exist"""
         mock_db = Mock()
@@ -725,7 +731,7 @@ class TestIntegration:
 class TestEdgeCases:
     """Test edge cases and error handling"""
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_single_market(self, mock_db_class, mock_market_ops):
         """Test with only a single market"""
         mock_db = Mock()
@@ -741,7 +747,7 @@ class TestEdgeCases:
         assert len(strategy.markets) == 1
         assert len(strategy.strategies) == 1
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_many_markets(self, mock_db_class, mock_market_ops):
         """Test with many markets"""
         mock_db = Mock()
@@ -758,7 +764,7 @@ class TestEdgeCases:
         assert len(strategy.markets) == 10
         assert len(strategy.strategies) == 10
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_duplicate_markets_in_list(self, mock_db_class, mock_market_ops):
         """Test handling of duplicate markets in input list"""
         mock_db = Mock()
@@ -779,7 +785,7 @@ class TestEdgeCases:
         assert 'BTC-EUR' in strategy.strategies
         assert 'ETH-EUR' in strategy.strategies
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_very_small_investment(self, mock_db_class, mock_market_ops, sample_markets):
         """Test with very small investment amount"""
         mock_db = Mock()
@@ -795,7 +801,7 @@ class TestEdgeCases:
         for market_strategy in strategy.strategies.values():
             assert market_strategy.investment_amount == 0.01
 
-    @patch('trader.multi_market_strategy.TradeDatabase')
+    @patch('trader.database.TradeDatabase')
     def test_very_large_investment(self, mock_db_class, mock_market_ops, sample_markets):
         """Test with very large investment amount"""
         mock_db = Mock()

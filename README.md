@@ -237,6 +237,36 @@ ValueError: sleep length must be non-negative
 
 For technical details, see [docs/BITVAVO_RATE_LIMIT_FIX.md](docs/BITVAVO_RATE_LIMIT_FIX.md)
 
+## 🧪 Running Tests
+
+Bender has a comprehensive test suite. To run the tests:
+
+```bash
+# Activate the virtual environment
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run a specific test file
+python -m pytest tests/test_config.py -v
+
+# Run with coverage report
+python -m pytest tests/ --cov=src/trader --cov-report=term-missing
+```
+
+**Test Categories:**
+- `test_config.py` - Configuration loading and validation
+- `test_database.py` - Trade database operations
+- `test_enhanced_strategy.py` - Trading strategy logic and signals
+- `test_multi_market_strategy.py` - Multi-market portfolio management
+- `test_market.py` - Market operations and API interactions
+- `test_virtual_wallet.py` - Virtual trading wallet functionality
+- `test_bitvavo_patch.py` - Bitvavo rate limit fix verification
+
 ## 💡 Contributing
 
 Contributions are welcome! Feel free to:

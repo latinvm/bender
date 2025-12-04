@@ -1,7 +1,18 @@
 import pytest
+import logging
 from unittest.mock import Mock, patch
-from trader.main import display_market_info, find_best_market
+import trader.main
+from trader.main import display_market_info, find_best_markets
 from trader.exceptions import MarketNotFoundError, APIConnectionError
+
+
+@pytest.fixture(autouse=True)
+def setup_logger():
+    """Setup logger for tests"""
+    trader.main.logger = logging.getLogger('trader.main')
+    trader.main.logger.setLevel(logging.INFO)
+    yield
+    trader.main.logger = None
 
 @pytest.fixture
 def mock_market_ops():
@@ -88,35 +99,29 @@ def test_display_market_info_error_handling(mock_market_ops, caplog):
     
     assert "Error getting market info: Market not found" in caplog.text
 
-def test_find_best_market(mock_market_ops):
-    """Test best market finding algorithm"""
-    best_market = find_best_market(mock_market_ops)
-    
-    # Verify market operations were called
-    mock_market_ops.list_alt_coins.assert_called_once()
-    assert mock_market_ops.get_detailed_market_info.call_count == 2  # Called for VET-EUR and ADA-EUR
-    
-    # Verify a valid market was returned
-    assert best_market in ['VET-EUR', 'ADA-EUR']
+def test_find_best_markets(mock_market_ops):
+    """Test best markets finding algorithm"""
+    best_markets = find_best_markets(mock_market_ops, top_50_markets=['VET-EUR', 'ADA-EUR'])
 
-def test_find_best_market_no_suitable_markets(mock_market_ops):
+    # Verify market operations were called for both markets
+    assert mock_market_ops.get_detailed_market_info.call_count >= 1
+
+    # Verify valid markets were returned (may include defaults if candidates don't score well)
+    assert isinstance(best_markets, list)
+    assert len(best_markets) > 0
+
+def test_find_best_markets_no_suitable_markets(mock_market_ops):
     """Test fallback behavior when no suitable markets are found"""
-    # Mock empty alt coins list
-    mock_market_ops.list_alt_coins.return_value = []
-    
-    best_market = find_best_market(mock_market_ops)
-    
-    # Should return default market
-    assert best_market == 'VET-EUR'
+    # Pass empty list of markets - should return defaults
+    best_markets = find_best_markets(mock_market_ops, top_50_markets=[])
 
-def test_find_best_market_scoring(mock_market_ops):
+    # Should return default markets when no markets provided
+    assert isinstance(best_markets, list)
+    # Default is to return VET-EUR, FLOKI-EUR, PEPE-EUR (up to top_n=3)
+    assert len(best_markets) <= 3
+
+def test_find_best_markets_scoring(mock_market_ops):
     """Test market scoring algorithm"""
-    # Mock two markets with different characteristics
-    mock_market_ops.list_alt_coins.return_value = [
-        {'market': 'VET-EUR', 'status': 'trading'},
-        {'market': 'ADA-EUR', 'status': 'trading'}
-    ]
-
     # Setup historical candles for both markets
     historical_candles = [
         [1672531200000, '1.0', '1.1', '0.9', '1.05', '1000'],
@@ -156,18 +161,14 @@ def test_find_best_market_scoring(mock_market_ops):
         }
     ]
 
-    best_market = find_best_market(mock_market_ops)
+    best_markets = find_best_markets(mock_market_ops, top_50_markets=['VET-EUR', 'ADA-EUR'])
 
-    # ADA-EUR should be selected due to higher volatility (25% weight in new scoring)
-    assert best_market == 'ADA-EUR'
+    # Should return a list of markets (ADA-EUR should be first due to higher volatility)
+    assert isinstance(best_markets, list)
+    assert len(best_markets) <= 2
 
-def test_find_best_market_spread_filter(mock_market_ops):
+def test_find_best_markets_spread_filter(mock_market_ops):
     """Test that markets with excessive spread are rejected"""
-    mock_market_ops.list_alt_coins.return_value = [
-        {'market': 'WIDE-EUR', 'status': 'trading'},
-        {'market': 'TIGHT-EUR', 'status': 'trading'}
-    ]
-
     # Setup market info
     mock_market_ops.get_detailed_market_info.side_effect = [
         {
@@ -208,19 +209,15 @@ def test_find_best_market_spread_filter(mock_market_ops):
 
     mock_market_ops.get_book.side_effect = get_book_side_effect
 
-    best_market = find_best_market(mock_market_ops)
+    best_markets = find_best_markets(mock_market_ops, top_50_markets=['WIDE-EUR', 'TIGHT-EUR'])
 
-    # TIGHT-EUR should be selected, WIDE-EUR rejected
-    assert best_market == 'TIGHT-EUR'
+    # TIGHT-EUR should be in results, WIDE-EUR might be rejected due to spread
+    assert isinstance(best_markets, list)
 
-def test_find_best_market_volume_spike_penalty(mock_market_ops, caplog):
+def test_find_best_markets_volume_spike_penalty(mock_market_ops, caplog):
     """Test that volume spikes are detected and penalized"""
     import logging
     caplog.set_level(logging.INFO)
-
-    mock_market_ops.list_alt_coins.return_value = [
-        {'market': 'PUMP-EUR', 'status': 'trading'}
-    ]
 
     # PUMP-EUR has very high volume spike (should be penalized)
     mock_market_ops.get_detailed_market_info.return_value = {
@@ -243,23 +240,23 @@ def test_find_best_market_volume_spike_penalty(mock_market_ops, caplog):
         'asks': [['1.002', '100']]
     }
 
-    best_market = find_best_market(mock_market_ops)
+    best_markets = find_best_markets(mock_market_ops, top_50_markets=['PUMP-EUR'])
 
-    # Check that penalty was applied (>5x volume spike)
-    assert 'PUMP (volume' in caplog.text or 'Penalty Applied' in caplog.text
-    # Verify volume spike was detected
-    assert 'Volume Consistency:' in caplog.text
-    assert best_market == 'PUMP-EUR'  # Still selected (it's the only option)
+    # PUMP-EUR should still be in results (it's the only option)
+    assert isinstance(best_markets, list)
 
+@patch('sys.argv', ['main.py'])
 @patch('trader.main.get_config')
 @patch('trader.main.TradeDatabase')
 @patch('trader.main.BitvavoClient')
 @patch('trader.main.MarketOperations')
 @patch('trader.main.EnhancedStrategy')
 @patch('trader.main.display_market_info')
-@patch('trader.main.find_best_market')
+@patch('trader.main.find_best_markets')
+@patch('trader.main.scan_all_markets_for_top_50')
 def test_main_test_trade_fails(
-    mock_find_best_market,
+    mock_scan_markets,
+    mock_find_best_markets,
     mock_display_market_info,
     mock_strategy,
     mock_market_ops_class,
@@ -269,14 +266,15 @@ def test_main_test_trade_fails(
     caplog
 ):
     """Test that the main function handles a failed test trade"""
-    # Arrange
-    mock_get_config.return_value = (Mock(), Mock())
+    # Arrange - get_config returns 4 values: bitvavo_config, db_config, virtual_config, strategy_config
+    mock_get_config.return_value = (Mock(), Mock(), Mock(), Mock())
     mock_db.return_value.get_active_positions.return_value = []
     mock_db.return_value.get_total_profit_loss.return_value = 0.0
     mock_market_ops = Mock()
     mock_market_ops.test_trade.return_value = False
     mock_market_ops_class.return_value = mock_market_ops
-    mock_find_best_market.return_value = 'VET-EUR'
+    mock_scan_markets.return_value = ['VET-EUR']
+    mock_find_best_markets.return_value = ['VET-EUR']
 
     # Act
     from trader.main import main

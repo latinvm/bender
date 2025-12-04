@@ -79,7 +79,8 @@ def test_price_fetch_with_logging():
     logger.info("  2. '  → Price: €X.XXXXXX' (this is the new debug info)")
     logger.info("\n" + "="*80)
 
-    return True
+    # Test passes if we got prices
+    assert len(prices) > 0
 
 
 if __name__ == "__main__":

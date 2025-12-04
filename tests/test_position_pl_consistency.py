@@ -9,6 +9,7 @@ for P/L calculations in both the Active Positions pane and Recent Activity messa
 import sys
 import logging
 import time
+import pytest
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.virtual_wallet import VirtualWallet
@@ -49,8 +50,8 @@ def test_position_pl_consistency():
     # Get an active position to test with
     positions = virtual_wallet.get_active_positions()
     if not positions:
-        logger.warning("No active positions - cannot test")
-        return False
+        logger.warning("No active positions - skipping test")
+        pytest.skip("No active positions available for testing")
 
     test_market = positions[0]['market']
     logger.info(f"\nTesting with market: {test_market}")
@@ -117,7 +118,9 @@ def test_position_pl_consistency():
     logger.info(f"This could cause confusion when prices differ from the 5m candle close")
     logger.info("="*80)
 
-    return True
+    # Test passes if we got here without exceptions
+    assert current_price is not None
+    assert entry_price is not None
 
 
 if __name__ == "__main__":
