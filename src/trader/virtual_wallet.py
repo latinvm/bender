@@ -1,8 +1,7 @@
 import sqlite3
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger('trader.virtual_wallet')
 
@@ -115,7 +114,7 @@ class VirtualWallet:
                 ''', ('DEPOSIT', self.initial_balance, 0.0, self.initial_balance, 'Initial balance', datetime.now()))
 
             conn.commit()
-            logger.info(f"Virtual wallet database initialized")
+            logger.info("Virtual wallet database initialized")
         finally:
             conn.close()
 
@@ -248,14 +247,21 @@ class VirtualWallet:
             if amount > position_amount:
                 return False, f"Trying to sell {amount:.8f} but only have {position_amount:.8f}"
 
-            # Get current buy fee from the trade (before calculating P/L)
+            # Get the oldest active trade for this market (id + buy fee).
+            # Selecting the id first keeps the later UPDATE portable:
+            # UPDATE ... ORDER BY ... LIMIT requires a non-default SQLite
+            # compile flag and crashes on standard builds.
             cursor.execute('''
-                SELECT fees FROM virtual_trades
+                SELECT id, fees FROM virtual_trades
                 WHERE market = ? AND status = 'ACTIVE'
                 ORDER BY entry_time ASC
                 LIMIT 1
             ''', (market,))
-            buy_fee = cursor.fetchone()[0] or 0.0
+            trade_row = cursor.fetchone()
+            if not trade_row:
+                return False, f"No active trade record for {market}"
+            trade_row_id = trade_row[0]
+            buy_fee = trade_row[1] or 0.0
 
             # Calculate proceeds
             total_proceeds = (price * amount) - fee
@@ -281,10 +287,8 @@ class VirtualWallet:
                 UPDATE virtual_trades
                 SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?,
                     profit_loss_pct = ?, exit_value = ?, fees = ?
-                WHERE market = ? AND status = 'ACTIVE'
-                ORDER BY entry_time ASC
-                LIMIT 1
-            ''', (price, datetime.now(), 'CLOSED', profit_loss, profit_loss_pct, price * amount, total_fees, market))
+                WHERE id = ?
+            ''', (price, datetime.now(), 'CLOSED', profit_loss, profit_loss_pct, price * amount, total_fees, trade_row_id))
 
             # Remove or update position
             if amount >= position_amount:

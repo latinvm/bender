@@ -12,6 +12,12 @@ from trader.virtual_wallet import VirtualWallet
 from trader.virtual_market import VirtualMarketOperations
 from trader.enhanced_strategy import EnhancedStrategy
 from trader.multi_market_strategy import MultiMarketStrategy
+import pytest
+
+
+# Live integration test: hits the real Bitvavo API and needs network access.
+# Deselected by default (see pyproject.toml); run with: pytest -m integration
+pytestmark = pytest.mark.integration
 
 # Setup logging
 logging.basicConfig(

@@ -17,3 +17,7 @@ class OrderError(BitvavoError):
 class AuthenticationError(BitvavoError):
     """Raised when there's an authentication issue"""
     pass
+
+class RateLimitError(BitvavoError):
+    """Raised when the API rate limit is exceeded"""
+    pass

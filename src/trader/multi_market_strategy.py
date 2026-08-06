@@ -1,7 +1,5 @@
 import logging
 import threading
-import time
-import pandas as pd
 from typing import List, Dict, Optional
 from trader.enhanced_strategy import EnhancedStrategy
 from trader.market import MarketOperations
@@ -11,7 +9,8 @@ logger = logging.getLogger('trader.multi_market')
 class MultiMarketStrategy:
     """Run trading strategies across multiple markets simultaneously"""
 
-    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0):
+    def __init__(self, market_ops: MarketOperations, markets: List[str], investment_per_market: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0,
+                 rsi_buy_strong: float = 40.0, rsi_buy_moderate: float = 50.0, rsi_sell: float = 60.0):
         """Initialize multi-market strategy
 
         Args:
@@ -58,7 +57,10 @@ class MultiMarketStrategy:
                 virtual_wallet=virtual_wallet,
                 max_positions=max_positions,
                 stop_loss_pct=stop_loss_pct,
-                take_profit_pct=take_profit_pct
+                take_profit_pct=take_profit_pct,
+                rsi_buy_strong=rsi_buy_strong,
+                rsi_buy_moderate=rsi_buy_moderate,
+                rsi_sell=rsi_sell
             )
 
         logger.info(f"MultiMarketStrategy initialized with {len(markets)} markets")
@@ -101,7 +103,6 @@ class MultiMarketStrategy:
     def get_portfolio_summary(self) -> Dict:
         """Get summary of all positions across all markets"""
         total_positions = 0
-        total_value = 0.0
         active_markets = []
 
         for market, strategy in self.strategies.items():
@@ -123,7 +124,7 @@ class MultiMarketStrategy:
             interval: Check interval in seconds (default: 60)
             stop_event: Optional event that stops the loop when set
         """
-        logger.info(f"Starting multi-market strategy")
+        logger.info("Starting multi-market strategy")
         logger.info(f"Checking {len(self.markets)} markets every {interval} seconds")
         stop = stop_event if stop_event is not None else threading.Event()
 

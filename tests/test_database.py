@@ -1,6 +1,5 @@
 import pytest
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 import tempfile
 import os
@@ -24,7 +23,7 @@ def db(temp_db):
 
 def test_database_initialization(temp_db):
     """Test database creation and schema initialization"""
-    db = TradeDatabase(temp_db)
+    TradeDatabase(temp_db)
     
     # Verify tables were created
     conn = sqlite3.connect(temp_db)
@@ -58,7 +57,7 @@ def test_database_initialization(temp_db):
     cursor.execute('PRAGMA table_info(positions)')
     columns = {row[1] for row in cursor.fetchall()}
     expected_columns = {
-        'id', 'market', 'amount', 'entry_price', 'entry_time', 'status'
+        'id', 'market', 'amount', 'entry_price', 'entry_time', 'status', 'trade_id'
     }
     assert columns == expected_columns
     
@@ -198,10 +197,10 @@ def test_empty_database_queries(db):
 def test_database_path_handling(temp_db):
     """Test database path handling"""
     # Test with string path
-    db1 = TradeDatabase(temp_db)
+    TradeDatabase(temp_db)
     assert os.path.exists(temp_db)
     
     # Test with Path object
     path_obj = Path(temp_db)
-    db2 = TradeDatabase(str(path_obj))
+    TradeDatabase(str(path_obj))
     assert os.path.exists(path_obj)

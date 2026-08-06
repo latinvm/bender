@@ -3,7 +3,6 @@ import pytest
 from pathlib import Path
 import tempfile
 import shutil
-from dotenv import load_dotenv
 
 # Import only the module to avoid name conflicts
 import trader.config

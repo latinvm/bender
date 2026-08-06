@@ -2,7 +2,7 @@
 Test the Bitvavo rate limit patch that fixes the negative sleep bug.
 """
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import time
 import logging
 
@@ -16,7 +16,6 @@ class TestBitvavoRateLimitPatch(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         # Import after setup to ensure fresh imports
-        from trader.bitvavo import BitvavoClient
 
     def test_patch_applied(self):
         """Test that the patch is applied successfully"""

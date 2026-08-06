@@ -2,11 +2,11 @@
 
 import logging
 from textual.app import App, ComposeResult
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Header, Footer, Static, DataTable, RichLog
+from textual.containers import Horizontal
+from textual.widgets import Header, Footer, Static
 from textual.reactive import reactive
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 from trader.virtual_wallet import VirtualWallet
 from trader.database import TradeDatabase
 from trader.config import get_config
@@ -87,7 +87,7 @@ class PositionsPanel(Static):
         lines.append("─" * 76)
 
         # Second pass: format with consistent widths
-        for pos, (pl_pct, pl_eur) in zip(self.positions, pl_values):
+        for pos, (pl_pct, pl_eur) in zip(self.positions, pl_values, strict=False):
             market = pos['market']
             amount = pos['amount']
             entry_price = pos['entry_price']

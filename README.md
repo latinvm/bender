@@ -33,7 +33,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - **Think of it as**: A rubber band stretched down - it wants to snap back up
 - **Example**: `BOME-EUR: RSI 24.79 → Strong Oversold! ✓ BUY`
 
-**Signal 2: Moderate Oversold + Momentum (RSI < 55 AND MACD > Signal)**
+**Signal 2: Moderate Oversold + Momentum (RSI < 50 AND MACD > Signal)**
 - **What it means**: The price dropped somewhat AND momentum is turning positive
 - **Think of it as**: A ball rolling downhill that's starting to slow and reverse
 - **Example**: `DOGS-EUR: RSI 38.28, MACD crossing up → Moderate + Momentum! ✓ BUY`
@@ -136,6 +136,9 @@ MAX_COIN_PRICE=10.0              # Maximum coin price in EUR to consider
 STRATEGY_INTERVAL=60             # Seconds between strategy execution cycles
 MARKET_CACHE_HOURS=6             # Hours to cache top 50 market selections
 MAX_CANDIDATES=30                # Maximum markets to analyze in detail
+RSI_BUY_STRONG=40.0              # Signal 1 threshold: buy when RSI below this
+RSI_BUY_MODERATE=50.0            # Signal 2 threshold: buy when RSI below this AND MACD > signal
+RSI_SELL=60.0                    # Sell threshold: sell when RSI above this AND MACD < signal
 ```
 
 **What These Settings Mean:**

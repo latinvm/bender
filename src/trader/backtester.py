@@ -1,6 +1,5 @@
 import logging
 import pandas as pd
-from trader.enhanced_strategy import EnhancedStrategy
 from trader.market import MarketOperations
 
 logger = logging.getLogger('trader.backtester')
@@ -41,7 +40,7 @@ class Backtester:
                 first_date = pd.to_datetime(candles[0][0], unit='ms')
                 last_date = pd.to_datetime(candles[-1][0], unit='ms')
                 logger.info(f"Available data range: {first_date} to {last_date}")
-                logger.info(f"Note: API limit is 1440 hourly candles (~60 days of data)")
+                logger.info("Note: API limit is 1440 hourly candles (~60 days of data)")
             return
 
         logger.info(f"Backtesting with {len(df)} candles from {df.index[0]} to {df.index[-1]}")

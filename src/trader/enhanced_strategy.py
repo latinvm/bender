@@ -2,18 +2,22 @@ import logging
 import threading
 import time
 import pandas as pd
-import pandas_ta as ta
+import pandas_ta  # noqa: F401  (registers the DataFrame .ta accessor used in calculate_indicators)
 from trader.market import MarketOperations, parse_order_fills
 from trader.database import TradeDatabase
-from typing import Dict, Optional
+from typing import Optional
 
 logger = logging.getLogger('trader.enhanced_strategy')
 
 class EnhancedStrategy:
-    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0):
+    def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0,
+                 rsi_buy_strong: float = 40.0, rsi_buy_moderate: float = 50.0, rsi_sell: float = 60.0):
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
+        self.rsi_buy_strong = rsi_buy_strong
+        self.rsi_buy_moderate = rsi_buy_moderate
+        self.rsi_sell = rsi_sell
         # Exactly one trade store per mode: the virtual wallet in virtual mode,
         # TradeDatabase in real mode. Writing virtual trades to the real DB
         # creates phantom positions that a later real session would try to sell.
@@ -79,16 +83,16 @@ class EnhancedStrategy:
         # This generates more opportunities while maintaining quality
 
         # Signal 1: Strong oversold (high confidence)
-        strong_oversold = rsi < 40
+        strong_oversold = rsi < self.rsi_buy_strong
 
         # Signal 2: Moderate oversold + bullish momentum
-        moderate_oversold_with_momentum = (rsi < 50) and (macd > macd_signal)
+        moderate_oversold_with_momentum = (rsi < self.rsi_buy_moderate) and (macd > macd_signal)
 
         # Signal 3: Price near support with momentum
         near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal - 0.000001)
 
-        logger.info(f"Signal 1 - Strong Oversold (RSI < 40): {strong_oversold}")
-        logger.info(f"Signal 2 - Moderate + Momentum (RSI < 55 + MACD>Signal): {moderate_oversold_with_momentum}")
+        logger.info(f"Signal 1 - Strong Oversold (RSI < {self.rsi_buy_strong:g}): {strong_oversold}")
+        logger.info(f"Signal 2 - Moderate + Momentum (RSI < {self.rsi_buy_moderate:g} + MACD>Signal): {moderate_oversold_with_momentum}")
         logger.info(f"Signal 3 - Near Support + Momentum: {near_support_with_momentum}")
 
         # Trigger buy if ANY signal is met
@@ -141,13 +145,12 @@ class EnhancedStrategy:
             logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
             logger.info(f"{self.market} Position P/L: {profit_percentage:+.2f}% (Entry: €{entry_price:.6f})")
 
-        # RELAXED Sell condition: RSI > 60 AND MACD bearish
-        # This will exit positions earlier before major reversals
-        rsi_overbought = rsi > 60  # Relaxed from 70 to 60
+        # Sell condition: RSI overbought AND MACD bearish
+        # This exits positions before major reversals
+        rsi_overbought = rsi > self.rsi_sell
         macd_bearish = macd < macd_signal
-        # Removed the upper BB requirement for more signals
 
-        logger.info(f"RSI > 60: {rsi_overbought}, MACD < Signal: {macd_bearish}")
+        logger.info(f"RSI > {self.rsi_sell:g}: {rsi_overbought}, MACD < Signal: {macd_bearish}")
 
         if rsi_overbought and macd_bearish:
             reason = f"Technical (RSI: {rsi:.1f}, MACD Bearish)"

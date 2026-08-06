@@ -1,9 +1,6 @@
 import pytest
-import sqlite3
 import tempfile
 import os
-from datetime import datetime
-from pathlib import Path
 from trader.virtual_wallet import VirtualWallet
 
 
@@ -818,8 +815,6 @@ class TestEdgeCases:
 
     def test_exact_balance_purchase(self, wallet):
         """Test purchasing with exact balance"""
-        balance = wallet.get_balance()
-
         success, _ = wallet.record_buy(
             market='ALL-IN-EUR',
             price=10.0,

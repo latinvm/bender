@@ -1,8 +1,7 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from trader.market import MarketOperations
 from trader.exceptions import MarketNotFoundError, APIConnectionError, AuthenticationError
-from datetime import datetime
 
 @pytest.fixture
 def mock_trade_db():

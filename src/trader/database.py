@@ -1,8 +1,7 @@
 import sqlite3
 import logging
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+from typing import Dict, List, Optional
 from trader.config import get_config
 
 logger = logging.getLogger('trader.database')
@@ -71,6 +70,7 @@ class TradeDatabase:
             self._add_column_if_missing(cursor, 'trades', 'fee', 'REAL DEFAULT 0.0')
             self._add_column_if_missing(cursor, 'trades', 'entry_order_id', 'TEXT')
             self._add_column_if_missing(cursor, 'trades', 'exit_order_id', 'TEXT')
+            self._add_column_if_missing(cursor, 'positions', 'trade_id', 'INTEGER')
 
             conn.commit()
         finally:
@@ -95,13 +95,15 @@ class TradeDatabase:
             ''', (market, entry_price, amount, datetime.now(), 'ACTIVE', fee, order_id))
 
             trade_id = cursor.lastrowid
-            
-            # Record position
+
+            # Record position, linked to its trade row so the exit can match
+            # it unambiguously (market+amount+price matching is ambiguous for
+            # duplicate entries)
             cursor.execute('''
-                INSERT INTO positions (market, amount, entry_price, entry_time, status)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (market, amount, entry_price, datetime.now(), 'ACTIVE'))
-            
+                INSERT INTO positions (market, amount, entry_price, entry_time, status, trade_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (market, amount, entry_price, datetime.now(), 'ACTIVE', trade_id))
+
             conn.commit()
             return trade_id
         finally:
@@ -114,13 +116,17 @@ class TradeDatabase:
         try:
             cursor = conn.cursor()
 
-            # Get oldest active trade for this market
+            # Get oldest active trade for this market. Prefer the explicit
+            # trade_id link; fall back to attribute matching for positions
+            # recorded before the trade_id column existed.
             cursor.execute('''
                 SELECT t.id, t.entry_price, t.amount, t.fee, p.id as position_id
                 FROM trades t
-                JOIN positions p ON p.market = t.market
-                    AND p.amount = t.amount
-                    AND p.entry_price = t.entry_price
+                JOIN positions p ON (p.trade_id = t.id)
+                    OR (p.trade_id IS NULL
+                        AND p.market = t.market
+                        AND p.amount = t.amount
+                        AND p.entry_price = t.entry_price)
                 WHERE t.market = ? AND t.status = 'ACTIVE'
                 ORDER BY t.entry_time ASC
                 LIMIT 1

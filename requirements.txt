@@ -1,17 +1,7 @@
-# Main dependencies
-setuptools>=69.0.0
-python-bitvavo-api>=1.3.0
+# Runtime dependencies (mirrors pyproject.toml; prefer `pip install -e .`)
+python-bitvavo-api>=1.4.3
 python-dotenv>=1.0.0
-
-# Type hints and data handling
-typing-extensions>=4.8.0  # For enhanced type hints
-pytz>=2023.3            # For proper timezone handling in timestamps
-
-# Database and data management
-sqlalchemy>=2.0.0       # For more robust database operations if needed in future
-numpy
-pandas
-pandas-ta
-
-# Terminal UI
-textual>=0.47.0         # Beautiful terminal user interfaces
+numpy>=1.26
+pandas>=2.0
+pandas-ta>=0.4.67b0
+textual>=0.47.0

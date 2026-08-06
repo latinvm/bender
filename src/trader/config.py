@@ -26,6 +26,9 @@ class TradingStrategyConfig(NamedTuple):
     strategy_interval: int
     market_cache_hours: int
     max_candidates: int
+    rsi_buy_strong: float = 40.0     # Signal 1: buy when RSI below this
+    rsi_buy_moderate: float = 50.0   # Signal 2: buy when RSI below this AND MACD bullish
+    rsi_sell: float = 60.0           # Sell when RSI above this AND MACD bearish
 
 def get_project_root() -> Path:
     """Get project root directory (2 levels up from this file)"""
@@ -81,10 +84,14 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
     strategy_interval = int(os.getenv('STRATEGY_INTERVAL', '60'))
     market_cache_hours = int(os.getenv('MARKET_CACHE_HOURS', '6'))
     max_candidates = int(os.getenv('MAX_CANDIDATES', '30'))
+    rsi_buy_strong = float(os.getenv('RSI_BUY_STRONG', '40.0'))
+    rsi_buy_moderate = float(os.getenv('RSI_BUY_MODERATE', '50.0'))
+    rsi_sell = float(os.getenv('RSI_SELL', '60.0'))
 
     return (
         BitvavoConfig(api_key, api_secret, operator_id),
         DatabaseConfig(db_path),
         VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee, max_positions),
-        TradingStrategyConfig(trade_amount, stop_loss_pct, take_profit_pct, max_coin_price, strategy_interval, market_cache_hours, max_candidates)
+        TradingStrategyConfig(trade_amount, stop_loss_pct, take_profit_pct, max_coin_price, strategy_interval,
+                              market_cache_hours, max_candidates, rsi_buy_strong, rsi_buy_moderate, rsi_sell)
     )

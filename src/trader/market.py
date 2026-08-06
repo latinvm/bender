@@ -1,9 +1,8 @@
 from typing import Dict, List, Optional, Tuple
 import logging
 from decimal import Decimal, ROUND_DOWN
-from trader.bitvavo import BitvavoClient
-from trader.logger import setup_logger
-from trader.exceptions import MarketNotFoundError, APIConnectionError, AuthenticationError
+from trader.bitvavo import BitvavoClient, check_bitvavo_response
+from trader.exceptions import BitvavoError, MarketNotFoundError, APIConnectionError, AuthenticationError
 from datetime import datetime
 import time
 from trader.database import TradeDatabase
@@ -92,9 +91,11 @@ class MarketOperations:
         """Get balance for all assets"""
         logger.info("Fetching balance for all assets")
         try:
-            balance = self.client.bitvavo.balance({})
+            balance = check_bitvavo_response(self.client.bitvavo.balance({}), 'balance')
             logger.debug(f"Retrieved balance: {balance}")
             return balance
+        except BitvavoError:
+            raise
         except Exception as e:
             if 'UNAUTHORIZED' in str(e):
                 logger.error("Authentication failed when fetching balance")
@@ -106,14 +107,14 @@ class MarketOperations:
         """Get detailed market information"""
         logger.info(f"Fetching market info for {market}")
         try:
-            all_markets = self.client.bitvavo.markets({})
+            all_markets = check_bitvavo_response(self.client.bitvavo.markets({}), 'markets')
             for market_info in all_markets:
                 if market_info['market'] == market:
                     logger.debug(f"Market info found: {market_info}")
                     return market_info
             logger.error(f"Market {market} not found")
             raise MarketNotFoundError(f"Market {market} not found")
-        except MarketNotFoundError:
+        except BitvavoError:
             raise
         except Exception as e:
             logger.error(f"Error fetching market info: {str(e)}")
@@ -123,9 +124,11 @@ class MarketOperations:
         """Get order book for a market"""
         logger.info(f"Fetching order book for {market} with depth {depth}")
         try:
-            book = self.client.bitvavo.book(market, {'depth': depth})
+            book = check_bitvavo_response(self.client.bitvavo.book(market, {'depth': depth}), f'book {market}')
             logger.debug(f"Retrieved order book: {book}")
             return book
+        except BitvavoError:
+            raise
         except Exception as e:
             if 'market' in str(e).lower():
                 raise MarketNotFoundError(f"Market {market} not found") from e
@@ -135,13 +138,14 @@ class MarketOperations:
     def get_ticker(self, market: str) -> Dict:
         """Get current ticker information"""
         try:
-            ticker = self.client.bitvavo.tickerPrice({'market': market})
-            if ticker and 'price' in ticker:
-                logger.info(f"Fetching ticker for {market}: €{float(ticker['price']):.6f}")
-            else:
-                logger.info(f"Fetching ticker for {market} (no price data)")
+            ticker = check_bitvavo_response(self.client.bitvavo.tickerPrice({'market': market}), f'ticker {market}')
+            if not isinstance(ticker, dict) or 'price' not in ticker:
+                raise APIConnectionError(f"Ticker response for {market} has no price: {ticker}")
+            logger.info(f"Fetching ticker for {market}: €{float(ticker['price']):.6f}")
             logger.debug(f"Retrieved ticker: {ticker}")
             return ticker
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching ticker for {market}: {str(e)}")
             raise APIConnectionError(f"Failed to fetch ticker: {str(e)}") from e
@@ -190,11 +194,13 @@ class MarketOperations:
         """Get available balance for a specific asset"""
         logger.info(f"Fetching balance for {symbol}")
         try:
-            balances = self.client.bitvavo.balance({})
+            balances = check_bitvavo_response(self.client.bitvavo.balance({}), 'balance')
             for balance in balances:
                 if balance['symbol'] == symbol:
                     return float(balance['available'])
             return 0.0
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching balance: {str(e)}")
             raise APIConnectionError(f"Failed to fetch balance: {str(e)}") from e
@@ -217,9 +223,11 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
-            response = self.client.bitvavo.placeOrder(market, side, 'limit', order_payload)
+            response = check_bitvavo_response(self.client.bitvavo.placeOrder(market, side, 'limit', order_payload), f'limit order {market}')
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error placing limit order: {str(e)}")
             raise APIConnectionError(f"Failed to place limit order: {str(e)}") from e
@@ -315,7 +323,7 @@ class MarketOperations:
             if self.operator_id:
                 order_payload['operatorId'] = self.operator_id
 
-            response = self.client.bitvavo.placeOrder(market, side, 'market', order_payload)
+            response = check_bitvavo_response(self.client.bitvavo.placeOrder(market, side, 'market', order_payload), f'market order {market}')
             
             # Log full response for debugging
             logger.debug(f"API Response: {response}")
@@ -331,8 +339,7 @@ class MarketOperations:
             logger.info(f"Order placed successfully: {response['orderId']}")
             return response
             
-        except MarketNotFoundError as e:
-            logger.error(f"Market not found: {market}")
+        except BitvavoError:
             raise
         except Exception as e:
             logger.error(f"Error placing market order: {str(e)}")
@@ -342,9 +349,11 @@ class MarketOperations:
         """Cancel an existing order"""
         logger.info(f"Canceling order {order_id} for {market}")
         try:
-            response = self.client.bitvavo.cancelOrder(market, order_id)
+            response = check_bitvavo_response(self.client.bitvavo.cancelOrder(market, order_id), f'cancel {order_id}')
             logger.info(f"Order canceled successfully: {order_id}")
             return response
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error canceling order: {str(e)}")
             raise APIConnectionError(f"Failed to cancel order: {str(e)}") from e
@@ -353,9 +362,11 @@ class MarketOperations:
         """Get the status of an order"""
         logger.info(f"Fetching status for order {order_id}")
         try:
-            response = self.client.bitvavo.getOrder(market, order_id)
+            response = check_bitvavo_response(self.client.bitvavo.getOrder(market, order_id), f'order status {order_id}')
             logger.debug(f"Order status: {response}")
             return response
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching order status: {str(e)}")
             raise APIConnectionError(f"Failed to get order status: {str(e)}") from e
@@ -364,9 +375,11 @@ class MarketOperations:
         """Get all open orders for a market"""
         logger.info(f"Fetching open orders for {market}")
         try:
-            response = self.client.bitvavo.getOrders(market, {})
+            response = check_bitvavo_response(self.client.bitvavo.getOrders(market, {}), f'open orders {market}')
             logger.debug(f"Open orders: {response}")
             return response
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching open orders: {str(e)}")
             raise APIConnectionError(f"Failed to get open orders: {str(e)}") from e
@@ -376,8 +389,8 @@ class MarketOperations:
         logger.info(f"Fetching altcoins under €{max_price}")
         try:
             # Get all markets and their 24h tickers in one efficient call
-            all_markets = self.client.bitvavo.markets({})
-            all_tickers = self.client.bitvavo.ticker24h({})
+            all_markets = check_bitvavo_response(self.client.bitvavo.markets({}), 'markets')
+            all_tickers = check_bitvavo_response(self.client.bitvavo.ticker24h({}), 'ticker24h')
 
             # Create a map of market -> ticker for fast lookup
             ticker_map = {ticker['market']: ticker for ticker in all_tickers}
@@ -501,7 +514,7 @@ class MarketOperations:
         """Get detailed market information including 24h volume"""
         logger.info(f"Fetching detailed info for {market}")
         try:
-            ticker_24h = self.client.bitvavo.ticker24h({'market': market})
+            ticker_24h = check_bitvavo_response(self.client.bitvavo.ticker24h({'market': market}), f'ticker24h {market}')
             return {
                 'market': market,
                 'price': float(ticker_24h['last']),
@@ -519,8 +532,10 @@ class MarketOperations:
         """Get historical candles for a market."""
         logger.info(f"Fetching historical candles for {market}")
         try:
-            candles = self.client.bitvavo.candles(market, interval, {'limit': limit})
+            candles = check_bitvavo_response(self.client.bitvavo.candles(market, interval, {'limit': limit}), f'candles {market}')
             return candles
+        except BitvavoError:
+            raise
         except Exception as e:
             logger.error(f"Error fetching historical candles: {str(e)}")
             raise APIConnectionError(f"Failed to fetch historical candles: {str(e)}") from e

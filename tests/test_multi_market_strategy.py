@@ -1,8 +1,6 @@
 import pytest
 import threading
-from unittest.mock import Mock, patch, MagicMock, call
-import pandas as pd
-from datetime import datetime
+from unittest.mock import Mock, patch
 from trader.multi_market_strategy import MultiMarketStrategy
 from trader.enhanced_strategy import EnhancedStrategy
 

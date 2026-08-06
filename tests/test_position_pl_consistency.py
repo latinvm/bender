@@ -8,13 +8,17 @@ for P/L calculations in both the Active Positions pane and Recent Activity messa
 
 import sys
 import logging
-import time
 import pytest
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.virtual_wallet import VirtualWallet
 from trader.virtual_market import VirtualMarketOperations
 from trader.enhanced_strategy import EnhancedStrategy
+
+
+# Live integration test: hits the real Bitvavo API and needs network access.
+# Deselected by default (see pyproject.toml); run with: pytest -m integration
+pytestmark = pytest.mark.integration
 
 # Setup logging
 logging.basicConfig(
@@ -93,7 +97,7 @@ def test_position_pl_consistency():
     pl_current = ((current_price - entry_price) / entry_price) * 100
 
     logger.info(f"Entry price: €{entry_price:.6f}")
-    logger.info(f"")
+    logger.info("")
     logger.info(f"P/L using historical close: {pl_historical:+.2f}%")
     logger.info(f"P/L using current ticker:   {pl_current:+.2f}%")
     logger.info(f"Difference: {abs(pl_current - pl_historical):.2f} percentage points")
@@ -112,10 +116,10 @@ def test_position_pl_consistency():
     logger.info("="*80)
     logger.info(f"✓ Recent Activity will now show P/L based on current ticker: {pl_current:+.2f}%")
     logger.info(f"✓ Active Positions pane shows P/L based on current ticker: {pl_current:+.2f}%")
-    logger.info(f"✓ Both values are now CONSISTENT")
+    logger.info("✓ Both values are now CONSISTENT")
     logger.info("")
     logger.info(f"Before this fix, Recent Activity would have shown: {pl_historical:+.2f}%")
-    logger.info(f"This could cause confusion when prices differ from the 5m candle close")
+    logger.info("This could cause confusion when prices differ from the 5m candle close")
     logger.info("="*80)
 
     # Test passes if we got here without exceptions

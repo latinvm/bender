@@ -52,19 +52,39 @@ def display_market_info(market_ops: MarketOperations, market: str) -> None:
         logger.error(f"Error getting market info: {str(e)}")
 
 def calculate_sharpe_ratio(returns, risk_free_rate=0.0):
-    """Calculate the Sharpe ratio for a series of returns."""
-    excess_returns = returns - risk_free_rate
-    if np.std(excess_returns) == 0:
+    """Calculate the Sharpe ratio for a series of returns.
+
+    Returns 0.0 for empty/constant series instead of NaN: a NaN here would
+    silently poison the market scoring downstream.
+    """
+    if len(returns) == 0:
         return 0.0
-    return np.mean(excess_returns) / np.std(excess_returns)
+    excess_returns = returns - risk_free_rate
+    std = np.std(excess_returns)
+    if not np.isfinite(std) or std < 1e-12:
+        return 0.0
+    ratio = np.mean(excess_returns) / std
+    return float(ratio) if np.isfinite(ratio) else 0.0
 
 def calculate_sortino_ratio(returns, risk_free_rate=0.0):
-    """Calculate the Sortino ratio for a series of returns."""
+    """Calculate the Sortino ratio for a series of returns.
+
+    A series with no downside periods has no downside deviation; np.std of
+    an empty array is NaN, which used to leak into market scores. Such a
+    series is maximally favorable, so return a high capped value (the
+    scoring clamps ratios to [0, 1]) when mean excess return is positive.
+    """
+    if len(returns) == 0:
+        return 0.0
     excess_returns = returns - risk_free_rate
     downside_returns = excess_returns[excess_returns < 0]
-    if np.std(downside_returns) == 0:
-        return 0.0
-    return np.mean(excess_returns) / np.std(downside_returns)
+    if len(downside_returns) == 0:
+        return 1.0 if np.mean(excess_returns) > 0 else 0.0
+    std = np.std(downside_returns)
+    if not np.isfinite(std) or std < 1e-12:
+        return 1.0 if np.mean(excess_returns) > 0 else 0.0
+    ratio = np.mean(excess_returns) / std
+    return float(ratio) if np.isfinite(ratio) else 0.0
 
 def scan_all_markets_for_top_50(market_ops: MarketOperations, cache_duration_hours: int = 6) -> List[str]:
     """STEP 1: Scan ALL altcoins and select top 50 by volume and basic metrics
@@ -199,7 +219,7 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         # Use the first 50 as candidates
         candidate_markets = [coin['market'] for coin in alt_coins[:50] if coin['status'] == 'trading']
     else:
-        logger.info(f"Using pre-filtered top 50 markets from cache")
+        logger.info("Using pre-filtered top 50 markets from cache")
         candidate_markets = top_50_markets
 
     # Get detailed info for candidates
@@ -231,7 +251,6 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         # Calculate basic metrics
         volatility = ((info['high'] - info['low']) / info['low']) * 100 if info['low'] > 0 else 0
         volume = info['volume_quote']  # Volume in EUR
-        trend = (info['price'] - info['open']) / info['open'] * 100 if info['open'] > 0 else 0
 
         # Get historical data for Sharpe, Sortino ratios, and volume consistency
         try:
@@ -305,6 +324,11 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         # Reject markets with excessive spread
         if spread_pct > 0.5:
             logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > 0.5%)")
+            continue
+
+        # A non-finite score would corrupt the ranking silently
+        if not np.isfinite(total_score):
+            logger.warning(f"Rejecting {market}: non-finite score")
             continue
 
         logger.info(f"\nAnalyzing {market}:")
@@ -608,11 +632,14 @@ def main():
                     virtual_wallet=virtual_wallet if virtual_mode else None,
                     max_positions=virtual_config.max_positions,
                     stop_loss_pct=strategy_config.stop_loss_pct,
-                    take_profit_pct=strategy_config.take_profit_pct
+                    take_profit_pct=strategy_config.take_profit_pct,
+                    rsi_buy_strong=strategy_config.rsi_buy_strong,
+                    rsi_buy_moderate=strategy_config.rsi_buy_moderate,
+                    rsi_sell=strategy_config.rsi_sell
                 )
             else:
                 # Single market strategy
-                logger.info(f"Using single-market strategy")
+                logger.info("Using single-market strategy")
                 strategy = EnhancedStrategy(
                     market_ops=market_ops,
                     market=markets[0],
@@ -620,7 +647,10 @@ def main():
                     virtual_wallet=virtual_wallet if virtual_mode else None,
                     max_positions=virtual_config.max_positions,
                     stop_loss_pct=strategy_config.stop_loss_pct,
-                    take_profit_pct=strategy_config.take_profit_pct
+                    take_profit_pct=strategy_config.take_profit_pct,
+                    rsi_buy_strong=strategy_config.rsi_buy_strong,
+                    rsi_buy_moderate=strategy_config.rsi_buy_moderate,
+                    rsi_sell=strategy_config.rsi_sell
                 )
 
             # Shared shutdown signal: strategy loop, background threads and the

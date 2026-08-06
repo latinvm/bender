@@ -3,7 +3,7 @@ import logging
 from unittest.mock import Mock, patch
 import trader.main
 from trader.main import display_market_info, find_best_markets
-from trader.exceptions import MarketNotFoundError, APIConnectionError
+from trader.exceptions import MarketNotFoundError
 
 
 @pytest.fixture(autouse=True)

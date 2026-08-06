@@ -199,7 +199,7 @@ class TestDatabaseFeesAndMigration:
         conn.commit()
         conn.close()
 
-        db = TradeDatabase(db_path)
+        TradeDatabase(db_path)  # triggers the migration
         conn = sqlite3.connect(db_path)
         columns = {row[1] for row in conn.execute('PRAGMA table_info(trades)').fetchall()}
         conn.close()

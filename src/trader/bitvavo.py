@@ -2,7 +2,34 @@ from python_bitvavo_api.bitvavo import Bitvavo
 import logging
 import time
 
+from trader.exceptions import AuthenticationError, BitvavoError, MarketNotFoundError, RateLimitError
+
 logger = logging.getLogger('trader.bitvavo')
+
+
+def check_bitvavo_response(response, context: str = ''):
+    """Validate a Bitvavo API response and raise typed exceptions on errors.
+
+    The Bitvavo client library does not raise on API errors - it returns an
+    error dict ({'errorCode': ..., 'error': ...}) where a list or data dict
+    was expected. Every API call must pass its response through this check,
+    otherwise errors surface later as confusing KeyErrors.
+
+    Returns the response unchanged when it is not an error.
+    """
+    if isinstance(response, dict) and ('errorCode' in response or 'error' in response):
+        code = response.get('errorCode')
+        message = response.get('error', str(response))
+        prefix = f"{context}: " if context else ""
+
+        if code in (105, 110) or 'rate limit' in str(message).lower():
+            raise RateLimitError(f"{prefix}rate limit exceeded (code {code}): {message}")
+        if (isinstance(code, int) and 300 <= code < 400) or 'UNAUTHORIZED' in str(message).upper():
+            raise AuthenticationError(f"{prefix}authentication failed (code {code}): {message}")
+        if code == 205 or 'market' in str(message).lower() and 'not' in str(message).lower():
+            raise MarketNotFoundError(f"{prefix}{message}")
+        raise BitvavoError(f"{prefix}API error (code {code}): {message}")
+    return response
 
 def _patch_bitvavo_rate_limit():
     """
@@ -16,9 +43,6 @@ def _patch_bitvavo_rate_limit():
     """
     try:
         from python_bitvavo_api.bitvavo import rateLimitThread
-
-        # Save original method
-        original_wait = rateLimitThread.waitForReset
 
         def patched_wait_for_reset(self, waitTime):
             """Fixed version that ensures non-negative sleep time"""
