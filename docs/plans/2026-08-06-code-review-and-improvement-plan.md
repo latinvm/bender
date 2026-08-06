@@ -1,6 +1,7 @@
 # Bender — Full Codebase Review & Improvement Plan
 
 **Date:** 2026-08-06
+**Status:** Phases 0-2 implemented on branch `hardening/phases-0-2` (2026-08-06). Phase 2.4 delivered as an unwired primitive (`MarketOperations.place_stop_loss_order`) pending live verification.
 **Scope:** Complete review of `src/trader/` (~3,600 LOC, 15 modules), tests (191 tests), docs, packaging, and repo hygiene.
 **Verdict:** Solid hobby project with genuinely good bones — but the **real-money path is not safe to run today**. Two critical bugs (full-balance liquidation in `test_trade`, virtual trades polluting the real trades DB) must be fixed before `trader trade` is ever used again.
 
@@ -106,30 +107,30 @@ Phased so each phase lands independently and the repo is releasable after every 
 
 > Also protects existing users: until released, the README should carry a warning not to use `trader trade`.
 
-- [ ] **0.1 Fix full-balance sell** — `market.py::test_trade`: parse the buy order's `filledAmount` and sell exactly that. Add unit test: prior balance 1,000 units + test buy of 30 → sell order must be 30.
-- [ ] **0.2 Gate the real test trade** — new `--test-trade` flag; default startup does a read-only check (`time()`, `balance()`, `markets()`). Update README.
-- [ ] **0.3 Stop DB cross-contamination** — `EnhancedStrategy`: accept a single `trade_store`; write to `TradeDatabase` **only** when no virtual wallet is present (`main.py` passes the right one). Add regression test: virtual-mode buy leaves `trades.db` untouched.
-- [ ] **0.4 Record actual fills** — parse `fills`/`filledAmount`/`feePaid` from order responses (virtual response at [virtual_market.py:136-154](../../src/trader/virtual_market.py#L136-L154) already fakes this shape — good); persist fill price, amount, fee, order ID. Schema: add `fee`, `order_id` columns (additive `ALTER TABLE`).
-- [ ] **0.5 Graceful shutdown** — `threading.Event` shared by strategy loop, rescan thread, TUI quit handler + `SIGINT`/`SIGTERM` handlers. Strategy checks the event between markets; order-place + DB-record are never separated by a check.
-- [ ] **0.6 Startup reconciliation (real mode)** — compare DB positions to `get_balance()`; on mismatch log a table and exit unless `--force`.
-- [ ] **0.7 Floor order amounts** — replace `round()` with `Decimal` floor-to-increment; test the round-up case explicitly.
+- [x] **0.1 Fix full-balance sell** — `market.py::test_trade`: parse the buy order's `filledAmount` and sell exactly that. Add unit test: prior balance 1,000 units + test buy of 30 → sell order must be 30.
+- [x] **0.2 Gate the real test trade** — new `--test-trade` flag; default startup does a read-only check (`time()`, `balance()`, `markets()`). Update README.
+- [x] **0.3 Stop DB cross-contamination** — `EnhancedStrategy`: accept a single `trade_store`; write to `TradeDatabase` **only** when no virtual wallet is present (`main.py` passes the right one). Add regression test: virtual-mode buy leaves `trades.db` untouched.
+- [x] **0.4 Record actual fills** — parse `fills`/`filledAmount`/`feePaid` from order responses (virtual response at [virtual_market.py:136-154](../../src/trader/virtual_market.py#L136-L154) already fakes this shape — good); persist fill price, amount, fee, order ID. Schema: add `fee`, `order_id` columns (additive `ALTER TABLE`).
+- [x] **0.5 Graceful shutdown** — `threading.Event` shared by strategy loop, rescan thread, TUI quit handler + `SIGINT`/`SIGTERM` handlers. Strategy checks the event between markets; order-place + DB-record are never separated by a check.
+- [x] **0.6 Startup reconciliation (real mode)** — compare DB positions to `get_balance()`; on mismatch log a table and exit unless `--force`.
+- [x] **0.7 Floor order amounts** — replace `round()` with `Decimal` floor-to-increment; test the round-up case explicitly.
 
 ### Phase 1 — Trustworthy numbers & green tests *(~1–2 days)*
 
-- [ ] **1.1 Central Bitvavo response validation** — `_check_response()` in `bitvavo.py` applied by every `MarketOperations` call; error dicts → typed exceptions; test with canned error payloads.
-- [ ] **1.2 Fix Sortino/Sharpe NaN** (H3) + unit tests for all-positive, all-negative, empty, and constant return series.
-- [ ] **1.3 Quarantine live-API tests** — `pytest.ini` with `markers = integration`, `addopts = -m "not integration"`; mark the 4 files; point their DB paths at `tmp_path`. Suite must pass offline on a clean checkout.
-- [ ] **1.4 Portable SQL** in `virtual_wallet.record_sell` (H5) and FK-linked trade/position rows (H6).
-- [ ] **1.5 Single source of truth for strategy thresholds** — move RSI/MACD/BB thresholds into `TradingStrategyConfig` (env-overridable, like SL/TP already are); fix the Signal-2 log line and README to match code.
-- [ ] **1.6 Packaging** — `pyproject.toml` (deps, `requires-python = ">=3.10"`, entry point), delete `setup.py`, drop `pytz`/`sqlalchemy`/`typing-extensions`, pin versions, add a constraints/lock file.
-- [ ] **1.7 CI** — GitHub Actions: `ruff check` + `ruff format --check` (replaces black/flake8/isort with one tool) + `pytest -m "not integration" --cov`. Badge in README.
+- [x] **1.1 Central Bitvavo response validation** — `_check_response()` in `bitvavo.py` applied by every `MarketOperations` call; error dicts → typed exceptions; test with canned error payloads.
+- [x] **1.2 Fix Sortino/Sharpe NaN** (H3) + unit tests for all-positive, all-negative, empty, and constant return series.
+- [x] **1.3 Quarantine live-API tests** — `pytest.ini` with `markers = integration`, `addopts = -m "not integration"`; mark the 4 files; point their DB paths at `tmp_path`. Suite must pass offline on a clean checkout.
+- [x] **1.4 Portable SQL** in `virtual_wallet.record_sell` (H5) and FK-linked trade/position rows (H6).
+- [x] **1.5 Single source of truth for strategy thresholds** — move RSI/MACD/BB thresholds into `TradingStrategyConfig` (env-overridable, like SL/TP already are); fix the Signal-2 log line and README to match code.
+- [x] **1.6 Packaging** — `pyproject.toml` (deps, `requires-python = ">=3.10"`, entry point), delete `setup.py`, drop `pytz`/`sqlalchemy`/`typing-extensions`, pin versions, add a constraints/lock file.
+- [x] **1.7 CI** — GitHub Actions: `ruff check` + `ruff format --check` (replaces black/flake8/isort with one tool) + `pytest -m "not integration" --cov`. Badge in README.
 
 ### Phase 2 — Risk management & a backtester you can believe *(~3–5 days; aligns with FEATURE_ROADMAP "Critical Priorities")*
 
-- [ ] **2.1 Portfolio safeguards** — daily loss limit and max-drawdown halt (config: `MAX_DAILY_LOSS_PCT`, `MAX_DRAWDOWN_PCT`); when tripped: close nothing automatically, stop opening, alert loudly.
-- [ ] **2.2 Wire market re-selection to the rescan** (H7) — after each rescan, rotate out selected markets with no open position; never drop a market holding a position.
-- [ ] **2.3 Honest backtester** — strategies receive prices instead of fetching them (fixes H2); simulate through `VirtualWallet` with configured fees; support cached/offline candle data beyond the 1,440-candle API cap; report Sharpe/max-DD/win-rate so parameter changes (like the recent RSI 55→50) are evidence-based instead of vibes-based.
-- [ ] **2.4 Crash-resilient stops** — investigate Bitvavo `stopLoss` order support; fall back to documented exposure + reconciliation on restart.
+- [x] **2.1 Portfolio safeguards** — daily loss limit and max-drawdown halt (config: `MAX_DAILY_LOSS_PCT`, `MAX_DRAWDOWN_PCT`); when tripped: close nothing automatically, stop opening, alert loudly.
+- [x] **2.2 Wire market re-selection to the rescan** (H7) — after each rescan, rotate out selected markets with no open position; never drop a market holding a position.
+- [x] **2.3 Honest backtester** — strategies receive prices instead of fetching them (fixes H2); simulate through `VirtualWallet` with configured fees; support cached/offline candle data beyond the 1,440-candle API cap; report Sharpe/max-DD/win-rate so parameter changes (like the recent RSI 55→50) are evidence-based instead of vibes-based.
+- [x] **2.4 Crash-resilient stops** — investigate Bitvavo `stopLoss` order support; fall back to documented exposure + reconciliation on restart.
 
 ### Phase 3 — Architecture & observability *(incremental, as touched)*
 

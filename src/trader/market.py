@@ -345,6 +345,51 @@ class MarketOperations:
             logger.error(f"Error placing market order: {str(e)}")
             raise APIConnectionError(f"Failed to place market order: {str(e)}") from e
 
+    def place_stop_loss_order(self, market: str, amount: float, trigger_price: float) -> Dict:
+        """Place an exchange-side stopLoss market order.
+
+        Unlike the strategy's polling stop-loss (evaluated every
+        STRATEGY_INTERVAL and only while the bot runs), an exchange-side stop
+        keeps protecting the position if the bot crashes or loses
+        connectivity.
+
+        Not yet wired into the strategy loop automatically: the order
+        lifecycle (cancel on technical sell, re-place after partial fills)
+        needs live verification first. Available for manual/experimental use.
+
+        Args:
+            market: Trading pair (e.g., 'BTC-EUR')
+            amount: Amount in base currency to sell when triggered
+            trigger_price: Price at which the stop triggers
+        """
+        logger.info(f"Placing stopLoss order: {amount} {market}, trigger €{trigger_price}")
+        try:
+            market_info = self.get_market_info(market)
+            order_size_increment = market_info.get('orderSizeIncrement', '0.00000001')
+            _, formatted_amount = floor_to_increment(amount, order_size_increment)
+
+            order_payload = {
+                'amount': formatted_amount,
+                'triggerType': 'price',
+                'triggerReference': 'lastTrade',
+                'triggerAmount': str(trigger_price),
+            }
+            if self.operator_id:
+                order_payload['operatorId'] = self.operator_id
+
+            response = check_bitvavo_response(
+                self.client.bitvavo.placeOrder(market, 'sell', 'stopLoss', order_payload),
+                f'stopLoss order {market}')
+            if not isinstance(response, dict) or 'orderId' not in response:
+                raise APIConnectionError(f"Invalid stopLoss order response: {response}")
+            logger.info(f"StopLoss order placed: {response['orderId']}")
+            return response
+        except BitvavoError:
+            raise
+        except Exception as e:
+            logger.error(f"Error placing stopLoss order: {str(e)}")
+            raise APIConnectionError(f"Failed to place stopLoss order: {str(e)}") from e
+
     def cancel_order(self, market: str, order_id: str) -> Dict:
         """Cancel an existing order"""
         logger.info(f"Canceling order {order_id} for {market}")

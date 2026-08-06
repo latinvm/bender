@@ -11,13 +11,15 @@ logger = logging.getLogger('trader.enhanced_strategy')
 
 class EnhancedStrategy:
     def __init__(self, market_ops: MarketOperations, market: str, investment_amount: float = 10.0, virtual_wallet=None, max_positions: int = 3, stop_loss_pct: float = 5.0, take_profit_pct: float = 15.0,
-                 rsi_buy_strong: float = 40.0, rsi_buy_moderate: float = 50.0, rsi_sell: float = 60.0):
+                 rsi_buy_strong: float = 40.0, rsi_buy_moderate: float = 50.0, rsi_sell: float = 60.0,
+                 risk_manager=None):
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
         self.rsi_buy_strong = rsi_buy_strong
         self.rsi_buy_moderate = rsi_buy_moderate
         self.rsi_sell = rsi_sell
+        self.risk_manager = risk_manager
         # Exactly one trade store per mode: the virtual wallet in virtual mode,
         # TradeDatabase in real mode. Writing virtual trades to the real DB
         # creates phantom positions that a later real session would try to sell.
@@ -111,8 +113,16 @@ class EnhancedStrategy:
 
         return False, ""
 
-    def should_sell(self, df: pd.DataFrame) -> tuple[bool, str]:
+    def should_sell(self, df: pd.DataFrame, current_price: Optional[float] = None) -> tuple[bool, str]:
         """Determine if we should sell based on the strategy.
+
+        Args:
+            df: Historical dataframe with indicators
+            current_price: Price to evaluate stop-loss/take-profit against.
+                Pass explicitly during backtesting (the historical close);
+                when None, the live ticker is fetched. Backtests must never
+                fall through to the live ticker - that evaluates historical
+                exits against today's price.
 
         Returns:
             Tuple of (should_sell: bool, reason: str)
@@ -132,9 +142,10 @@ class EnhancedStrategy:
 
         entry_price = self.entry_prices[self.market]
 
-        # For P/L reporting, use current ticker price (not historical close price)
-        # This ensures consistency with what's shown in Active Positions pane
-        current_price = self.get_current_price(use_cache=True)
+        # For live P/L reporting, use current ticker price (not historical
+        # close price) for consistency with the Active Positions pane
+        if current_price is None:
+            current_price = self.get_current_price(use_cache=True)
         if current_price is not None:
             profit_percentage = ((current_price - entry_price) / entry_price) * 100
             logger.info(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
@@ -203,6 +214,14 @@ class EnhancedStrategy:
             should_sell, sell_reason = self.should_sell(df)
 
             if should_buy and self.market not in self.positions:
+                # Portfolio-level risk safeguards: when tripped, no new
+                # positions are opened (sells above are unaffected)
+                if self.risk_manager is not None:
+                    allowed, risk_reason = self.risk_manager.can_open_position()
+                    if not allowed:
+                        logger.info(f"BUY BLOCKED for {self.market}: {risk_reason}")
+                        return
+
                 # Check global position limit before buying
                 if self.virtual_wallet is not None:
                     active_positions = self.virtual_wallet.get_active_positions()

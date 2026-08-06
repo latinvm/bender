@@ -620,6 +620,23 @@ def main():
             # Both virtual and real mode use the same interval for consistent behavior
             strategy_interval = strategy_config.strategy_interval
 
+            # Portfolio-level risk safeguards. The capital base the loss
+            # percentages apply to: the virtual wallet's initial balance in
+            # virtual mode, the maximum capital the bot deploys in real mode.
+            from trader.risk import RiskManager
+            if virtual_mode:
+                risk_store = virtual_wallet
+                capital_base = virtual_wallet.get_initial_balance()
+            else:
+                risk_store = db
+                capital_base = strategy_config.trade_amount * virtual_config.max_positions
+            risk_manager = RiskManager(
+                trade_store=risk_store,
+                capital_base=capital_base,
+                max_daily_loss_pct=strategy_config.max_daily_loss_pct,
+                max_drawdown_pct=strategy_config.max_drawdown_pct
+            )
+
             # Create strategy based on number of markets
             # Pass virtual_wallet and strategy_config to strategies when in virtual mode
             if len(markets) > 1:
@@ -635,7 +652,8 @@ def main():
                     take_profit_pct=strategy_config.take_profit_pct,
                     rsi_buy_strong=strategy_config.rsi_buy_strong,
                     rsi_buy_moderate=strategy_config.rsi_buy_moderate,
-                    rsi_sell=strategy_config.rsi_sell
+                    rsi_sell=strategy_config.rsi_sell,
+                    risk_manager=risk_manager
                 )
             else:
                 # Single market strategy
@@ -650,7 +668,8 @@ def main():
                     take_profit_pct=strategy_config.take_profit_pct,
                     rsi_buy_strong=strategy_config.rsi_buy_strong,
                     rsi_buy_moderate=strategy_config.rsi_buy_moderate,
-                    rsi_sell=strategy_config.rsi_sell
+                    rsi_sell=strategy_config.rsi_sell,
+                    risk_manager=risk_manager
                 )
 
             # Shared shutdown signal: strategy loop, background threads and the
@@ -676,10 +695,17 @@ def main():
                         logger.info("\n" + "=" * 80)
                         logger.info(f"PERIODIC MARKET RESCAN (every {strategy_config.market_cache_hours} hours)")
                         logger.info("=" * 80)
-                        # Force cache refresh by calling scan function
-                        # (cache will be automatically invalidated after configured hours)
-                        scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
-                        logger.info("Market rescan completed - top 50 cache refreshed")
+                        # Refresh the top-50 cache, re-run detailed selection,
+                        # and hand the result to the strategy for rotation
+                        fresh_top_50 = scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
+                        fresh_markets = find_best_markets(market_ops, top_n=num_markets,
+                                                          max_candidates=strategy_config.max_candidates,
+                                                          top_50_markets=fresh_top_50)
+                        if hasattr(strategy, 'update_markets'):
+                            strategy.update_markets(fresh_markets)
+                        else:
+                            logger.info("Single-market strategy: market rotation requires restart")
+                        logger.info("Market rescan completed")
                         logger.info("=" * 80 + "\n")
                     except Exception as e:
                         logger.error(f"Error during periodic market rescan: {e}")
@@ -763,7 +789,7 @@ def main():
 
     elif args.command == 'backtest':
         logger.info("Starting backtester")
-        bitvavo_config, _, _, strategy_config = get_config()
+        bitvavo_config, _, virtual_config, strategy_config = get_config()
         client = BitvavoClient(api_key=bitvavo_config.api_key, api_secret=bitvavo_config.api_secret)
         market_ops = MarketOperations(client)
 
@@ -772,7 +798,10 @@ def main():
             strategy_class=EnhancedStrategy,
             market=args.market,
             start_date=args.start,
-            end_date=args.end
+            end_date=args.end,
+            initial_balance=virtual_config.initial_balance,
+            investment_amount=strategy_config.trade_amount,
+            trading_fee_pct=virtual_config.trading_fee_pct
         )
         backtester.run()
 

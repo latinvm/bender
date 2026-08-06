@@ -404,6 +404,19 @@ class VirtualWallet:
         finally:
             conn.close()
 
+    def get_profit_loss_since(self, since: datetime) -> float:
+        """Realized profit/loss from trades closed at or after `since`"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COALESCE(SUM(profit_loss), 0.0) FROM virtual_trades
+                WHERE status = 'CLOSED' AND exit_time >= ?
+            ''', (since,))
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
+
     def get_total_costs(self) -> float:
         """Get total costs (fees) from active trades only
 

@@ -53,6 +53,14 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - **Stop-Loss**: Sells at -5% by default (configurable via `STOP_LOSS_PCT`)
 - **Take-Profit**: Sells at +15% by default (configurable via `TAKE_PROFIT_PCT`)
 
+**Portfolio Safeguards**
+- **Daily loss limit**: Stops opening new positions when today's realized loss exceeds `MAX_DAILY_LOSS_PCT` of your capital (default 10%; existing positions are still managed and can be sold)
+- **Max drawdown halt**: Stops opening new positions when total realized loss exceeds `MAX_DRAWDOWN_PCT` of your capital (default 25%)
+- Note: the stop-loss is evaluated by the bot every `STRATEGY_INTERVAL` seconds; if the bot is not running, positions are unprotected. Exchange-side stop orders are available as `MarketOperations.place_stop_loss_order()` but not yet wired into the strategy automatically.
+
+**Automatic Market Rotation**
+- Every `MARKET_CACHE_HOURS`, all markets are rescanned and the selection is refreshed. Markets without an open position rotate out in favour of better candidates; markets holding a position stay managed until the position exits.
+
 #### 🎲 Intelligent Market Selection
 
 - **Multi-factor scoring system** analyzing 5 key metrics
