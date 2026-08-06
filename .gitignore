@@ -24,3 +24,4 @@ logs/
 # Database files
 *.db
 data/
+.serena/project.yml
