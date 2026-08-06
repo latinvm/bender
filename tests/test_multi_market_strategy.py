@@ -1,4 +1,5 @@
 import pytest
+import threading
 from unittest.mock import Mock, patch, MagicMock, call
 import pandas as pd
 from datetime import datetime
@@ -577,9 +578,8 @@ class TestRunLoop:
     """Test the main run loop"""
 
     @patch('trader.database.TradeDatabase')
-    @patch('trader.multi_market_strategy.time.sleep')
-    def test_run_executes_trades_periodically(self, mock_sleep, mock_db_class, mock_market_ops, sample_markets):
-        """Test that run loop executes trades periodically"""
+    def test_run_executes_trades_periodically(self, mock_db_class, mock_market_ops, sample_markets):
+        """Test that run loop executes trades and stops via stop_event"""
         mock_db = Mock()
         mock_db.get_active_positions.return_value = []
         mock_db_class.return_value = mock_db
@@ -590,24 +590,18 @@ class TestRunLoop:
             investment_per_market=10.0
         )
 
-        # Mock execute_all_trades
-        strategy.execute_all_trades = Mock()
+        # Stop the loop after the first trade cycle
+        stop = threading.Event()
+        strategy.execute_all_trades = Mock(side_effect=lambda: stop.set())
 
-        # Make sleep raise KeyboardInterrupt to exit loop
-        mock_sleep.side_effect = KeyboardInterrupt()
+        strategy.run(interval=60, stop_event=stop)
 
-        try:
-            strategy.run(interval=60)
-        except KeyboardInterrupt:
-            pass
-
-        # Should have called execute_all_trades at least once
-        strategy.execute_all_trades.assert_called()
+        # Should have called execute_all_trades exactly once before stopping
+        strategy.execute_all_trades.assert_called_once()
 
     @patch('trader.database.TradeDatabase')
-    @patch('trader.multi_market_strategy.time.sleep')
-    def test_run_uses_custom_interval(self, mock_sleep, mock_db_class, mock_market_ops, sample_markets):
-        """Test that custom interval is used"""
+    def test_run_uses_custom_interval(self, mock_db_class, mock_market_ops, sample_markets):
+        """Test that custom interval is passed to the stop event wait"""
         mock_db = Mock()
         mock_db.get_active_positions.return_value = []
         mock_db_class.return_value = mock_db
@@ -619,15 +613,20 @@ class TestRunLoop:
         )
 
         strategy.execute_all_trades = Mock()
-        mock_sleep.side_effect = KeyboardInterrupt()
 
-        try:
-            strategy.run(interval=120)
-        except KeyboardInterrupt:
-            pass
+        stop = threading.Event()
+        wait_calls = []
 
-        # Should have called sleep with custom interval
-        mock_sleep.assert_called_with(120)
+        def fake_wait(timeout=None):
+            wait_calls.append(timeout)
+            stop.set()
+            return True
+
+        stop.wait = fake_wait
+        strategy.run(interval=120, stop_event=stop)
+
+        # The loop should have waited with the custom interval
+        assert wait_calls == [120]
 
     @patch('trader.database.TradeDatabase')
     def test_run_handles_keyboard_interrupt(self, mock_db_class, mock_market_ops, sample_markets):

@@ -49,7 +49,8 @@ def test_database_initialization(temp_db):
     columns = {row[1] for row in cursor.fetchall()}
     expected_columns = {
         'id', 'market', 'entry_price', 'exit_price', 'amount',
-        'entry_time', 'exit_time', 'status', 'profit_loss'
+        'entry_time', 'exit_time', 'status', 'profit_loss',
+        'fee', 'entry_order_id', 'exit_order_id'
     }
     assert columns == expected_columns
     

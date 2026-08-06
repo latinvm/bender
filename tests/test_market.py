@@ -64,9 +64,15 @@ def mock_bitvavo():
     mock.placeOrder.return_value = {
         'orderId': '12345',
         'market': 'BTC-EUR',
-        'status': 'filled'
+        'status': 'filled',
+        'filledAmount': '0.001',
+        'filledAmountQuote': '30.0',
+        'feePaid': '0.075',
+        'fills': [
+            {'price': '30000.00', 'amount': '0.001', 'fee': '0.075'}
+        ]
     }
-    
+
     return mock
 
 @pytest.fixture
@@ -344,6 +350,52 @@ def test_test_trade(market_ops, mock_bitvavo):
     sell_call = mock_bitvavo.placeOrder.call_args_list[1]
     assert sell_call[0][1] == 'sell'
 
+
+def test_test_trade_never_sells_preexisting_balance(market_ops, mock_bitvavo):
+    """The test sell must only cover what the test buy filled, even when the
+    account already holds a large balance of the asset."""
+    # Account holds 5 BTC from before; test buy fills only 0.001 BTC
+    def mock_get_balance(symbol):
+        if symbol == 'EUR':
+            return 1000.0
+        elif symbol == 'BTC':
+            return 5.0  # Pre-existing holding - must NOT be sold
+        return 0.0
+
+    market_ops.get_available_balance = Mock(side_effect=mock_get_balance)
+
+    result = market_ops.test_trade('BTC-EUR')
+
+    assert result is True
+    sell_call = mock_bitvavo.placeOrder.call_args_list[1]
+    assert sell_call[0][1] == 'sell'
+    sold_amount = float(sell_call[0][3]['amount'])
+    # Sold exactly the test buy's filled amount (0.001 from the mock response)
+    assert sold_amount == pytest.approx(0.001)
+
+
+def test_test_trade_aborts_when_fill_unknown(market_ops, mock_bitvavo):
+    """If the filled amount cannot be determined, do not sell anything."""
+    mock_bitvavo.placeOrder.return_value = {
+        'orderId': '12345',
+        'market': 'BTC-EUR',
+        'status': 'filled'
+        # No filledAmount / fills
+    }
+    # Order status lookup also yields no fill info
+    mock_bitvavo.getOrder.return_value = {'orderId': '12345', 'status': 'new'}
+
+    def mock_get_balance(symbol):
+        return 1000.0 if symbol == 'EUR' else 5.0
+
+    market_ops.get_available_balance = Mock(side_effect=mock_get_balance)
+
+    result = market_ops.test_trade('BTC-EUR')
+
+    assert result is False
+    # Only the buy order was placed - never a sell
+    assert mock_bitvavo.placeOrder.call_count == 1
+
 def test_test_trade_failure(market_ops, mock_bitvavo):
     """Test the test trade failure handling"""
     mock_bitvavo.placeOrder.side_effect = Exception('API Error')
@@ -378,8 +430,8 @@ def test_place_market_order_rounding(market_ops, mock_bitvavo):
     # Call the method
     market_ops.place_market_order('BONK-EUR', 'buy', test_amount)
 
-    # Verify that the amount in the payload sent to placeOrder is correctly rounded
-    expected_rounded_amount = '429285.05'
+    # Verify the amount is floored (never rounded up) to the increment
+    expected_rounded_amount = '429285.04'
 
     # Get the actual payload from the mock
     actual_call_args = mock_bitvavo.placeOrder.call_args
@@ -388,8 +440,8 @@ def test_place_market_order_rounding(market_ops, mock_bitvavo):
     assert actual_payload['amount'] == expected_rounded_amount
 
 @pytest.mark.parametrize("orderSizeIncrement, amount, expected_format", [
-    ('0.01', 123.456, "123.46"),
-    ('0.00001', 123.456789, "123.45679"),
+    ('0.01', 123.456, "123.45"),        # floored, never rounded up
+    ('0.00001', 123.456789, "123.45678"),
     ('1', 123.456, "123"),
     ('0.01', 123.0, "123")  # Trailing zeros are stripped (123.00 -> 123)
 ])

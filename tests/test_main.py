@@ -8,11 +8,9 @@ from trader.exceptions import MarketNotFoundError, APIConnectionError
 
 @pytest.fixture(autouse=True)
 def setup_logger():
-    """Setup logger for tests"""
-    trader.main.logger = logging.getLogger('trader.main')
+    """Ensure the module logger is at INFO level for caplog assertions"""
     trader.main.logger.setLevel(logging.INFO)
     yield
-    trader.main.logger = None
 
 @pytest.fixture
 def mock_market_ops():
@@ -245,7 +243,7 @@ def test_find_best_markets_volume_spike_penalty(mock_market_ops, caplog):
     # PUMP-EUR should still be in results (it's the only option)
     assert isinstance(best_markets, list)
 
-@patch('sys.argv', ['main.py'])
+@patch('sys.argv', ['main.py', '--test-trade'])
 @patch('trader.main.get_config')
 @patch('trader.main.TradeDatabase')
 @patch('trader.main.BitvavoClient')
@@ -265,7 +263,7 @@ def test_main_test_trade_fails(
     mock_get_config,
     caplog
 ):
-    """Test that the main function handles a failed test trade"""
+    """Test that the main function handles a failed test trade (--test-trade)"""
     # Arrange - get_config returns 4 values: bitvavo_config, db_config, virtual_config, strategy_config
     mock_get_config.return_value = (Mock(), Mock(), Mock(), Mock())
     mock_db.return_value.get_active_positions.return_value = []
@@ -282,4 +280,43 @@ def test_main_test_trade_fails(
 
     # Assert
     assert "Test trade failed - aborting strategy" in caplog.text
+    mock_strategy.assert_not_called()
+
+
+@patch('sys.argv', ['main.py'])
+@patch('trader.main.get_config')
+@patch('trader.main.TradeDatabase')
+@patch('trader.main.BitvavoClient')
+@patch('trader.main.MarketOperations')
+@patch('trader.main.EnhancedStrategy')
+@patch('trader.main.display_market_info')
+@patch('trader.main.find_best_markets')
+@patch('trader.main.scan_all_markets_for_top_50')
+def test_main_real_mode_defaults_to_connectivity_check(
+    mock_scan_markets,
+    mock_find_best_markets,
+    mock_display_market_info,
+    mock_strategy,
+    mock_market_ops_class,
+    mock_bitvavo_client,
+    mock_db,
+    mock_get_config,
+    caplog
+):
+    """Without --test-trade, real mode must not place any orders on startup"""
+    mock_get_config.return_value = (Mock(), Mock(), Mock(), Mock())
+    mock_db.return_value.get_active_positions.return_value = []
+    mock_db.return_value.get_total_profit_loss.return_value = 0.0
+    mock_market_ops = Mock()
+    mock_market_ops.connectivity_check.return_value = False  # abort before strategy
+    mock_market_ops_class.return_value = mock_market_ops
+    mock_scan_markets.return_value = ['VET-EUR']
+    mock_find_best_markets.return_value = ['VET-EUR']
+
+    from trader.main import main
+    main()
+
+    # The real test trade must never run without the explicit flag
+    mock_market_ops.test_trade.assert_not_called()
+    assert "Connectivity check failed - aborting strategy" in caplog.text
     mock_strategy.assert_not_called()

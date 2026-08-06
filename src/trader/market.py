@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import logging
+from decimal import Decimal, ROUND_DOWN
 from trader.bitvavo import BitvavoClient
 from trader.logger import setup_logger
 from trader.exceptions import MarketNotFoundError, APIConnectionError, AuthenticationError
@@ -8,6 +9,74 @@ import time
 from trader.database import TradeDatabase
 
 logger = logging.getLogger('trader.market')
+
+
+def floor_to_increment(amount: float, increment: str) -> Tuple[Decimal, str]:
+    """Floor an order amount to the market's orderSizeIncrement.
+
+    Uses Decimal and always rounds DOWN: rounding up could exceed the
+    available balance on sells or the intended spend on buys.
+
+    Returns:
+        Tuple of (floored Decimal amount, formatted string without trailing zeros)
+    """
+    step = Decimal(increment)
+    floored = (Decimal(str(amount)) / step).to_integral_value(rounding=ROUND_DOWN) * step
+    text = format(floored, 'f')
+    if '.' in text:
+        text = text.rstrip('0').rstrip('.')
+    return floored, text
+
+
+def parse_order_fills(response: Dict, fallback_price: float = None,
+                      fallback_amount: float = None) -> Tuple[float, float, float]:
+    """Extract actual execution details from an order response.
+
+    Prefers the 'fills' list (weighted average price), then the
+    filledAmount/filledAmountQuote summary fields, then the provided
+    fallbacks (pre-trade ticker price / requested amount).
+
+    Returns:
+        Tuple of (fill_price, filled_amount, fee_paid)
+    """
+    fee = 0.0
+    if isinstance(response, dict):
+        try:
+            fee = float(response.get('feePaid', 0) or 0)
+        except (TypeError, ValueError):
+            fee = 0.0
+
+        fills = response.get('fills') or []
+        total_amount = 0.0
+        total_quote = 0.0
+        fills_fee = 0.0
+        for fill in fills:
+            try:
+                fill_amount = float(fill['amount'])
+                fill_price = float(fill['price'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            total_amount += fill_amount
+            total_quote += fill_amount * fill_price
+            try:
+                fills_fee += float(fill.get('fee', 0) or 0)
+            except (TypeError, ValueError):
+                pass
+        if total_amount > 0:
+            return total_quote / total_amount, total_amount, fee or fills_fee
+
+        try:
+            filled_amount = float(response.get('filledAmount', 0) or 0)
+            filled_quote = float(response.get('filledAmountQuote', 0) or 0)
+            if filled_amount > 0 and filled_quote > 0:
+                return filled_quote / filled_amount, filled_amount, fee
+            if filled_amount > 0 and fallback_price is not None:
+                return fallback_price, filled_amount, fee
+        except (TypeError, ValueError):
+            pass
+
+    logger.warning("Order response missing fill data, falling back to requested amount/ticker price")
+    return fallback_price, fallback_amount, fee
 
 class MarketOperations:
     def __init__(self, client: BitvavoClient, operator_id: Optional[int] = None):
@@ -231,26 +300,14 @@ class MarketOperations:
                 
             logger.info("Order meets minimum requirements")
 
-            # Round amount to market precision
-            # Bitvavo accepts either 2 or 8 decimal places based on the orderSizeIncrement
-            # We need to determine the proper precision from the increment value
+            # Floor amount to the market's orderSizeIncrement. Never round up:
+            # that could exceed the available balance on sells or the intended
+            # spend on buys.
             order_size_increment = market_info.get('orderSizeIncrement', '0.00000001')
+            floored_amount, formatted_amount = floor_to_increment(amount, order_size_increment)
 
-            # Count decimal places in the increment to determine precision
-            if '.' in order_size_increment:
-                precision = len(order_size_increment.split('.')[1])
-            else:
-                precision = 0
-
-            # Round to the determined precision
-            rounded_amount = round(amount, precision)
-
-            # Format without trailing zeros
-            formatted_amount = f'{rounded_amount:.{precision}f}'.rstrip('0').rstrip('.')
-
-            if rounded_amount != amount:
-                logger.info(f"Rounded order amount from {amount:.12f} to {rounded_amount} (precision: {precision} decimals)")
-                logger.info(f"Formatted as: '{formatted_amount}'")
+            if float(floored_amount) != amount:
+                logger.info(f"Floored order amount from {amount:.12f} to {formatted_amount} (increment: {order_size_increment})")
 
             order_payload = {
                 'amount': formatted_amount
@@ -348,6 +405,28 @@ class MarketOperations:
             logger.error(f"Error fetching altcoins: {str(e)}")
             raise
     
+    def connectivity_check(self) -> bool:
+        """Read-only startup check: verifies API reachability and credentials
+        without placing any orders or moving any funds.
+        """
+        try:
+            server_time = self.client.bitvavo.time()
+            if not isinstance(server_time, dict) or 'time' not in server_time:
+                logger.error(f"Connectivity check failed: unexpected time response: {server_time}")
+                return False
+            logger.info("Connectivity check: API reachable")
+
+            balance = self.get_balance()
+            if isinstance(balance, dict) and 'error' in balance:
+                logger.error(f"Connectivity check failed: {balance['error']}")
+                return False
+            eur = next((float(b['available']) for b in balance if b.get('symbol') == 'EUR'), 0.0)
+            logger.info(f"Connectivity check: credentials valid, EUR available: €{eur:.2f}")
+            return True
+        except Exception as e:
+            logger.error(f"Connectivity check failed: {str(e)}")
+            return False
+
     def test_trade(self, market: str) -> bool:
         """
         Execute a test trade cycle (buy and sell) with minimum amounts
@@ -382,20 +461,33 @@ class MarketOperations:
             # Place test buy order
             buy_order = self.place_market_order(market, 'buy', test_amount)
             logger.info(f"Test buy successful: {buy_order['orderId']}")
-            
+
             # Small delay to ensure order is processed
             time.sleep(2)
-            
-            # Get actual amount bought
-            balance = self.get_available_balance(market.split('-')[0])
-            if balance <= 0:
-                logger.error("Test buy succeeded but no balance found")
+
+            # Determine how much the test buy actually filled. NEVER sell more
+            # than the test buy acquired: the account may already hold this
+            # asset from before, and that balance must not be touched.
+            _, filled_amount, _ = parse_order_fills(buy_order)
+            if not filled_amount or filled_amount <= 0:
+                order_status = self.get_order_status(market, buy_order['orderId'])
+                _, filled_amount, _ = parse_order_fills(order_status)
+
+            if not filled_amount or filled_amount <= 0:
+                logger.error("Test buy succeeded but filled amount unknown - NOT selling (manual check needed)")
                 return False
-                
-            logger.info(f"Placing test sell order: {balance:.8f} {market}")
-            
-            # Sell everything back
-            sell_order = self.place_market_order(market, 'sell', balance)
+
+            # Cap at the available balance in case fees were taken in the base asset
+            available = self.get_available_balance(market.split('-')[0])
+            sell_amount = min(filled_amount, available)
+            if sell_amount <= 0:
+                logger.error("Test buy succeeded but no balance available to sell back")
+                return False
+
+            logger.info(f"Placing test sell order: {sell_amount:.8f} {market} (test buy filled: {filled_amount:.8f})")
+
+            # Sell back only what the test buy acquired
+            sell_order = self.place_market_order(market, 'sell', sell_amount)
             logger.info(f"Test sell successful: {sell_order['orderId']}")
             
             logger.info("Trade cycle test completed successfully")

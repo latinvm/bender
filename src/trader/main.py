@@ -1,6 +1,8 @@
 from typing import Dict, List, Optional
 import logging
 import argparse
+import signal
+import threading
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.market import MarketOperations
@@ -16,8 +18,7 @@ from trader.multi_market_strategy import MultiMarketStrategy
 import time
 from datetime import datetime, timedelta
 
-# Logger will be set up in main() based on --monitor flag
-logger = None
+logger = logging.getLogger('trader.main')
 
 # Global cache for top 50 markets
 _top_50_cache: Optional[Dict] = None
@@ -339,6 +340,65 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
 
     return top_markets
 
+def reconcile_positions(db, market_ops, force: bool = False, tolerance: float = 0.01) -> bool:
+    """Compare DB positions against actual exchange balances (real mode).
+
+    The local database is the bot's only memory of what it holds; if it has
+    drifted from the exchange (manual trades, crashes, old bugs), trading on
+    it would sell assets that aren't there or ignore ones that are.
+
+    Args:
+        db: TradeDatabase with recorded positions
+        market_ops: MarketOperations for fetching real balances
+        force: If True, log mismatches but continue anyway
+        tolerance: Relative shortfall tolerated (fees/rounding), default 1%
+
+    Returns:
+        True if it is safe to continue trading, False to abort
+    """
+    positions = db.get_active_positions()
+    if not positions:
+        logger.info("Reconciliation: no recorded positions to verify")
+        return True
+
+    try:
+        balances = market_ops.get_balance()
+        available = {}
+        for bal in balances:
+            try:
+                available[bal['symbol']] = float(bal['available']) + float(bal.get('inOrder', 0) or 0)
+            except (KeyError, TypeError, ValueError):
+                continue
+    except Exception as e:
+        logger.error(f"Reconciliation failed: could not fetch balances: {e}")
+        return force
+
+    mismatches = []
+    for pos in positions:
+        base = pos['market'].split('-')[0]
+        held = available.get(base, 0.0)
+        if held < pos['amount'] * (1 - tolerance):
+            mismatches.append((pos, held))
+
+    if not mismatches:
+        logger.info(f"Reconciliation: all {len(positions)} recorded position(s) match exchange balances")
+        return True
+
+    logger.error("=" * 80)
+    logger.error("RECONCILIATION MISMATCH: recorded positions not backed by exchange balances")
+    logger.error(f"{'Market':<12} {'Recorded':>16} {'On exchange':>16}")
+    for pos, held in mismatches:
+        logger.error(f"{pos['market']:<12} {pos['amount']:>16.8f} {held:>16.8f}")
+    logger.error("These positions may be phantoms (e.g. old virtual-mode records) or")
+    logger.error("the assets were moved/sold outside the bot.")
+    if force:
+        logger.warning("--force given: continuing DESPITE mismatches")
+        return True
+    logger.error("Refusing to trade. Clean up the database or re-run with --force.")
+    logger.error("=" * 80)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
     parser.add_argument('command', nargs='?', default='trade', help="Command to run: trade, virtual, or backtest")
@@ -348,12 +408,12 @@ def main():
     parser.add_argument('--reset', action='store_true', help="Reset virtual wallet to initial balance (virtual mode only)")
     parser.add_argument('--stats', action='store_true', help="Show trading statistics and exit")
     parser.add_argument('--monitor', action='store_true', help="Show live terminal UI while trading (outputs logs to file)")
+    parser.add_argument('--test-trade', action='store_true', help="Real mode: execute a real minimum-size buy+sell test cycle on startup (costs fees). Default is a read-only connectivity check.")
+    parser.add_argument('--force', action='store_true', help="Real mode: continue even if recorded positions don't match exchange balances")
     args = parser.parse_args()
 
     # Setup logger - disable console output if monitor is active
     setup_logger('trader', console_output=not args.monitor)
-    global logger
-    logger = logging.getLogger('trader.main')
 
     if args.command == 'trade' or args.command == 'virtual':
         # Determine mode based on command
@@ -477,6 +537,11 @@ def main():
 
                 market_ops = MarketOperations(client, operator_id=bitvavo_config.operator_id)
 
+                # Verify recorded positions actually exist on the exchange
+                # before trading against them
+                if not reconcile_positions(db, market_ops, force=args.force):
+                    return
+
             # 2-STEP MARKET SELECTION
             # STEP 1: Scan all markets and get top 50 (cached for configured hours)
             logger.info("\n" + "=" * 80)
@@ -496,7 +561,7 @@ def main():
             # Display market information for first market
             display_market_info(market_ops, markets[0])
 
-            # Run test trade cycle - skip if resuming with existing positions
+            # Startup verification - skip if resuming with existing positions
             if virtual_mode:
                 # Check if we have any active positions from a previous session
                 active_positions = virtual_wallet.get_active_positions()
@@ -505,18 +570,27 @@ def main():
                     for pos in active_positions:
                         logger.info(f"{pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
                 else:
-                    logger.info("Running test trade cycle...")
+                    logger.info("Running virtual test trade cycle...")
                     if not market_ops.test_trade(markets[0]):
                         logger.error("Test trade failed - aborting strategy")
                         return
                     logger.info("Test trade successful - starting main strategy")
             else:
-                # Real trading mode - always run test trade
-                logger.info("Running test trade cycle...")
-                if not market_ops.test_trade(markets[0]):
-                    logger.error("Test trade failed - aborting strategy")
-                    return
-                logger.info("Test trade successful - starting main strategy")
+                # Real trading mode: default to a read-only connectivity check.
+                # A real buy+sell cycle costs fees and spread on every startup,
+                # so it is opt-in via --test-trade.
+                if args.test_trade:
+                    logger.info("Running REAL test trade cycle (--test-trade)...")
+                    if not market_ops.test_trade(markets[0]):
+                        logger.error("Test trade failed - aborting strategy")
+                        return
+                    logger.info("Test trade successful - starting main strategy")
+                else:
+                    logger.info("Running read-only connectivity check...")
+                    if not market_ops.connectivity_check():
+                        logger.error("Connectivity check failed - aborting strategy")
+                        return
+                    logger.info("Connectivity check successful - starting main strategy")
 
             # Determine strategy interval from configuration
             # Both virtual and real mode use the same interval for consistent behavior
@@ -549,13 +623,25 @@ def main():
                     take_profit_pct=strategy_config.take_profit_pct
                 )
 
-            # Setup periodic market rescan (every configured hours)
-            import threading
+            # Shared shutdown signal: strategy loop, background threads and the
+            # TUI all stop through this. The strategy checks it between cycles,
+            # so an in-flight order is always recorded before shutdown.
+            stop_event = threading.Event()
+
+            def handle_shutdown_signal(signum, frame):
+                logger.info(f"Received signal {signum} - shutting down gracefully...")
+                stop_event.set()
+
+            try:
+                signal.signal(signal.SIGINT, handle_shutdown_signal)
+                signal.signal(signal.SIGTERM, handle_shutdown_signal)
+            except ValueError:
+                # Not in the main thread (e.g. tests) - skip signal handling
+                pass
 
             def periodic_market_rescan():
                 """Periodically rescan all markets to refresh top 50 cache"""
-                while True:
-                    time.sleep(strategy_config.market_cache_hours * 60 * 60)
+                while not stop_event.wait(strategy_config.market_cache_hours * 60 * 60):
                     try:
                         logger.info("\n" + "=" * 80)
                         logger.info(f"PERIODIC MARKET RESCAN (every {strategy_config.market_cache_hours} hours)")
@@ -587,7 +673,7 @@ def main():
                 def run_strategy_in_background():
                     """Run strategy in background thread"""
                     try:
-                        strategy.run(interval=strategy_interval)
+                        strategy.run(interval=strategy_interval, stop_event=stop_event)
                     except KeyboardInterrupt:
                         logger.info("Strategy stopped by user")
                     except Exception as e:
@@ -600,20 +686,26 @@ def main():
                 # Run TUI in main thread (blocks until user quits)
                 # Pass live data sources to TUI
                 if virtual_mode:
-                    run_tui_with_data(virtual_mode=True, wallet=virtual_wallet, strategy=strategy)
+                    run_tui_with_data(virtual_mode=True, wallet=virtual_wallet, strategy=strategy, stop_event=stop_event)
                 else:
-                    run_tui_with_data(virtual_mode=False, db=db, strategy=strategy)
+                    run_tui_with_data(virtual_mode=False, db=db, strategy=strategy, stop_event=stop_event)
+
+                # TUI exited: make sure the strategy stops and gets a chance to
+                # finish an in-flight trade cycle before the process ends
+                stop_event.set()
+                logger.info("Waiting for strategy to finish current cycle...")
+                strategy_thread.join(timeout=60)
+                if strategy_thread.is_alive():
+                    logger.warning("Strategy thread did not stop within 60s - exiting anyway")
 
             else:
                 # No monitor - run strategy normally with optional portfolio updates
                 if virtual_mode:
                     logger.info(f"Starting strategy with {strategy_interval}s interval and portfolio updates every 5 minutes...")
-                    import threading
 
                     def show_portfolio_periodically():
                         """Show portfolio summary every 5 minutes"""
-                        while True:
-                            time.sleep(300)  # 5 minutes
+                        while not stop_event.wait(300):
                             try:
                                 market_ops.show_portfolio_summary()
                             except Exception as e:
@@ -628,8 +720,8 @@ def main():
                 else:
                     logger.info(f"Starting strategy with {strategy_interval}s interval...")
 
-                # Run strategy
-                strategy.run(interval=strategy_interval)
+                # Run strategy (in the main thread; signal handlers set stop_event)
+                strategy.run(interval=strategy_interval, stop_event=stop_event)
 
         except AuthenticationError as e:
             logger.error(f"Authentication failed: {str(e)}")

@@ -66,21 +66,34 @@ class TradeDatabase:
                     status TEXT NOT NULL
                 )
             ''')
-            
+
+            # Additive migrations for databases created before these columns existed
+            self._add_column_if_missing(cursor, 'trades', 'fee', 'REAL DEFAULT 0.0')
+            self._add_column_if_missing(cursor, 'trades', 'entry_order_id', 'TEXT')
+            self._add_column_if_missing(cursor, 'trades', 'exit_order_id', 'TEXT')
+
             conn.commit()
         finally:
             conn.close()
 
-    def record_trade_entry(self, market: str, entry_price: float, amount: float) -> int:
+    @staticmethod
+    def _add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, definition: str) -> None:
+        cursor.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in cursor.fetchall()}
+        if column not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def record_trade_entry(self, market: str, entry_price: float, amount: float,
+                           fee: float = 0.0, order_id: Optional[str] = None) -> int:
         """Record a new trade entry"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO trades (market, entry_price, amount, entry_time, status)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (market, entry_price, amount, datetime.now(), 'ACTIVE'))
-            
+                INSERT INTO trades (market, entry_price, amount, entry_time, status, fee, entry_order_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (market, entry_price, amount, datetime.now(), 'ACTIVE', fee, order_id))
+
             trade_id = cursor.lastrowid
             
             # Record position
@@ -94,37 +107,40 @@ class TradeDatabase:
         finally:
             conn.close()
 
-    def record_trade_exit(self, market: str, exit_price: float) -> None:
-        """Record a trade exit and calculate profit/loss"""
+    def record_trade_exit(self, market: str, exit_price: float,
+                          fee: float = 0.0, order_id: Optional[str] = None) -> None:
+        """Record a trade exit and calculate profit/loss (net of recorded fees)"""
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
-            
+
             # Get oldest active trade for this market
             cursor.execute('''
-                SELECT t.id, t.entry_price, t.amount, p.id as position_id
+                SELECT t.id, t.entry_price, t.amount, t.fee, p.id as position_id
                 FROM trades t
-                JOIN positions p ON p.market = t.market 
-                    AND p.amount = t.amount 
+                JOIN positions p ON p.market = t.market
+                    AND p.amount = t.amount
                     AND p.entry_price = t.entry_price
                 WHERE t.market = ? AND t.status = 'ACTIVE'
                 ORDER BY t.entry_time ASC
                 LIMIT 1
             ''', (market,))
-            
+
             trade = cursor.fetchone()
             if trade:
-                trade_id, entry_price, amount, position_id = trade
-                
-                # Calculate profit/loss
-                profit_loss = (exit_price - entry_price) * amount
-                
+                trade_id, entry_price, amount, entry_fee, position_id = trade
+
+                # Calculate profit/loss net of entry and exit fees
+                total_fees = (entry_fee or 0.0) + fee
+                profit_loss = (exit_price - entry_price) * amount - total_fees
+
                 # Update trade record
                 cursor.execute('''
                     UPDATE trades
-                    SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?
+                    SET exit_price = ?, exit_time = ?, status = ?, profit_loss = ?,
+                        fee = ?, exit_order_id = ?
                     WHERE id = ?
-                ''', (exit_price, datetime.now(), 'CLOSED', profit_loss, trade_id))
+                ''', (exit_price, datetime.now(), 'CLOSED', profit_loss, total_fees, order_id, trade_id))
                 
                 # Remove specific position
                 cursor.execute('''
@@ -173,15 +189,21 @@ class TradeDatabase:
             conn.close()
 
     def get_total_costs(self) -> float:
-        """Get total costs (fees) from all trades
+        """Get total costs (fees) from active trades only.
 
-        Note: Real trading database doesn't track fees separately,
-        so this returns 0.0 for compatibility with TUI
-
-        Returns:
-            Total costs (always 0.0 for real trading)
+        Closed trade fees are already included in realized P/L, so only
+        fees on open positions are returned (mirrors VirtualWallet).
         """
-        return 0.0
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT COALESCE(SUM(fee), 0.0) FROM trades
+                WHERE status = 'ACTIVE'
+            ''')
+            return cursor.fetchone()[0]
+        finally:
+            conn.close()
 
     def get_trade_history(self) -> List[Dict]:
         """Get history of all trades"""

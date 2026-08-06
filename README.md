@@ -199,9 +199,17 @@ trader trade --monitor
 
 # Show real trading statistics
 trader trade --stats
+
+# Optionally verify order execution with a real minimum-size buy+sell
+# cycle on startup (costs fees; disabled by default)
+trader trade --test-trade
 ```
 
 ⚠️ **WARNING**: This uses real money! Test with virtual trading first.
+
+**Startup safety checks (real mode):**
+- A read-only connectivity check verifies your API credentials without placing any orders. Pass `--test-trade` if you explicitly want a real minimum-size buy+sell verification cycle instead.
+- Recorded positions are reconciled against your actual exchange balances. If the database references assets you no longer hold, Bender refuses to trade until you clean up the database or pass `--force`.
 
 ### Monitor Mode
 

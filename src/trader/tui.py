@@ -281,12 +281,13 @@ class BenderTUI(App):
         ("r", "refresh", "Refresh"),
     ]
 
-    def __init__(self, virtual_mode: bool = True, live_wallet=None, live_db=None, live_strategy=None):
+    def __init__(self, virtual_mode: bool = True, live_wallet=None, live_db=None, live_strategy=None, stop_event=None):
         super().__init__()
         self.virtual_mode = virtual_mode
         self.wallet: Optional[VirtualWallet] = live_wallet
         self.db: Optional[TradeDatabase] = live_db
         self.strategy = live_strategy  # Live strategy instance (EnhancedStrategy or MultiMarketStrategy)
+        self.stop_event = stop_event  # Signals the strategy thread to stop on quit
         self.update_interval = 5  # seconds
 
     def compose(self) -> ComposeResult:
@@ -468,7 +469,9 @@ class BenderTUI(App):
         activity.add_message("[blue]REFRESH[/blue] Data refreshed")
 
     def action_quit(self) -> None:
-        """Quit the application"""
+        """Quit the application, signalling the strategy thread to stop first"""
+        if self.stop_event is not None:
+            self.stop_event.set()
         self.exit()
 
 
@@ -478,7 +481,7 @@ def run_tui(virtual_mode: bool = True):
     app.run()
 
 
-def run_tui_with_data(virtual_mode: bool, wallet=None, db=None, strategy=None):
+def run_tui_with_data(virtual_mode: bool, wallet=None, db=None, strategy=None, stop_event=None):
     """Run the Bender TUI with live data sources
 
     Args:
@@ -486,8 +489,9 @@ def run_tui_with_data(virtual_mode: bool, wallet=None, db=None, strategy=None):
         wallet: VirtualWallet instance (if virtual_mode=True)
         db: TradeDatabase instance (if virtual_mode=False)
         strategy: The strategy instance being run (for live updates)
+        stop_event: threading.Event used to stop the strategy thread on quit
     """
-    app = BenderTUI(virtual_mode=virtual_mode, live_wallet=wallet, live_db=db, live_strategy=strategy)
+    app = BenderTUI(virtual_mode=virtual_mode, live_wallet=wallet, live_db=db, live_strategy=strategy, stop_event=stop_event)
     app.run()
 
 

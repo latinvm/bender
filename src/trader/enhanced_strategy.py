@@ -1,8 +1,9 @@
 import logging
+import threading
 import time
 import pandas as pd
 import pandas_ta as ta
-from trader.market import MarketOperations
+from trader.market import MarketOperations, parse_order_fills
 from trader.database import TradeDatabase
 from typing import Dict, Optional
 
@@ -13,7 +14,10 @@ class EnhancedStrategy:
         self.market_ops = market_ops
         self.market = market
         self.investment_amount = investment_amount
-        self.db = TradeDatabase()
+        # Exactly one trade store per mode: the virtual wallet in virtual mode,
+        # TradeDatabase in real mode. Writing virtual trades to the real DB
+        # creates phantom positions that a later real session would try to sell.
+        self.db = TradeDatabase() if virtual_wallet is None else None
         self.virtual_wallet = virtual_wallet
         self.max_positions = max_positions
         self.stop_loss_pct = stop_loss_pct
@@ -218,14 +222,22 @@ class EnhancedStrategy:
 
                 amount = self.investment_amount / current_price
                 order = self.market_ops.place_market_order(self.market, 'buy', amount)
-                self.positions[self.market] = amount
-                self.entry_prices[self.market] = current_price
-                self.db.record_trade_entry(self.market, current_price, amount)
+
+                # Track what actually filled, not what we asked for: market
+                # orders execute at fill prices, and P/L, stop-loss and
+                # take-profit must be computed against reality.
+                fill_price, filled_amount, fee = parse_order_fills(
+                    order, fallback_price=current_price, fallback_amount=amount)
+                self.positions[self.market] = filled_amount
+                self.entry_prices[self.market] = fill_price
+                if self.db is not None:
+                    self.db.record_trade_entry(self.market, fill_price, filled_amount,
+                                               fee=fee, order_id=order.get('orderId'))
 
                 logger.info(f"BUY EXECUTED for {self.market}")
                 logger.info(f"Reason: {buy_reason}")
-                logger.info(f"Amount: {amount:.8f} {self.market} (€{self.investment_amount:.2f})")
-                logger.info(f"Price: €{current_price:.6f}")
+                logger.info(f"Amount: {filled_amount:.8f} {self.market} (€{self.investment_amount:.2f})")
+                logger.info(f"Fill price: €{fill_price:.6f} (fee: €{fee:.4f})")
                 logger.info(f"Active positions: {current_position_count + 1}/{self.max_positions}")
 
             elif should_sell and self.market in self.positions:
@@ -237,18 +249,22 @@ class EnhancedStrategy:
 
                 amount = self.positions[self.market]
                 entry_price = self.entry_prices[self.market]
-                profit_pct = ((current_price - entry_price) / entry_price) * 100
-                profit_eur = (amount * current_price) - (amount * entry_price)
 
                 order = self.market_ops.place_market_order(self.market, 'sell', amount)
-                self.db.record_trade_exit(self.market, current_price)
+                exit_price, _, fee = parse_order_fills(
+                    order, fallback_price=current_price, fallback_amount=amount)
+                profit_pct = ((exit_price - entry_price) / entry_price) * 100
+                profit_eur = (amount * exit_price) - (amount * entry_price)
+                if self.db is not None:
+                    self.db.record_trade_exit(self.market, exit_price,
+                                              fee=fee, order_id=order.get('orderId'))
                 del self.positions[self.market]
                 del self.entry_prices[self.market]
 
                 logger.info(f"SELL EXECUTED for {self.market}")
                 logger.info(f"Reason: {sell_reason}")
                 logger.info(f"Amount: {amount:.8f} {self.market}")
-                logger.info(f"Entry: €{entry_price:.6f} -> Exit: €{current_price:.6f}")
+                logger.info(f"Entry: €{entry_price:.6f} -> Exit: €{exit_price:.6f} (fee: €{fee:.4f})")
                 logger.info(f"P/L: {profit_pct:+.2f}% (€{profit_eur:+.4f})")
             else:
                 # Not trading but still update price cache for TUI
@@ -261,9 +277,11 @@ class EnhancedStrategy:
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")
 
-    def run(self, interval: int = 300):
-        """Run the trading strategy."""
+    def run(self, interval: int = 300, stop_event: Optional[threading.Event] = None):
+        """Run the trading strategy until stop_event is set (or forever if None)."""
         logger.info(f"Starting enhanced trading strategy for {self.market}")
-        while True:
+        stop = stop_event if stop_event is not None else threading.Event()
+        while not stop.is_set():
             self.execute_trade()
-            time.sleep(interval)
+            stop.wait(interval)
+        logger.info(f"Strategy for {self.market} stopped")

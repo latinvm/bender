@@ -1,7 +1,8 @@
 import logging
+import threading
 import time
 import pandas as pd
-from typing import List, Dict
+from typing import List, Dict, Optional
 from trader.enhanced_strategy import EnhancedStrategy
 from trader.market import MarketOperations
 
@@ -115,17 +116,19 @@ class MultiMarketStrategy:
             'max_capital': self.investment_per_market * len(self.markets)
         }
 
-    def run(self, interval: int = 60):
-        """Run the multi-market trading strategy
+    def run(self, interval: int = 60, stop_event: Optional[threading.Event] = None):
+        """Run the multi-market trading strategy until stop_event is set
 
         Args:
             interval: Check interval in seconds (default: 60)
+            stop_event: Optional event that stops the loop when set
         """
         logger.info(f"Starting multi-market strategy")
         logger.info(f"Checking {len(self.markets)} markets every {interval} seconds")
+        stop = stop_event if stop_event is not None else threading.Event()
 
         try:
-            while True:
+            while not stop.is_set():
                 self.execute_all_trades()
 
                 # Show summary
@@ -134,7 +137,9 @@ class MultiMarketStrategy:
                 if summary['active_markets']:
                     logger.info(f"Active markets: {', '.join(summary['active_markets'])}")
 
-                time.sleep(interval)
+                stop.wait(interval)
+
+            logger.info("Multi-market strategy stopped")
 
         except KeyboardInterrupt:
             logger.info("Multi-market strategy stopped by user")
