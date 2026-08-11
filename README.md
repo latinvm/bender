@@ -87,7 +87,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 
 ### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.12 or higher
 - A Bitvavo account ([Sign up here](https://bitvavo.com/invite?a=00B4208D84) to support the project!)
 
 ### Why Bitvavo?
