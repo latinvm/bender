@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tools.log_analysis.candles import CandleStore
+from tools.log_analysis.candles import INTERVAL_MS, CandleStore
 from tools.log_analysis.replay import (
     AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, window_snapshot,
     window_snapshots)
@@ -62,6 +62,16 @@ VARIANTS = {
 
 
 # ---------------------------------------------------------------- helpers
+
+def bars_for(horizon: pd.Timedelta, interval: str) -> int:
+    """Number of candles of `interval` that span `horizon`."""
+    return int(horizon / pd.Timedelta(milliseconds=INTERVAL_MS[interval]))
+
+
+def min_history(interval: str) -> int:
+    """Fewest candles a market needs for the studies: 500 of 5 minutes (as always), four days of hourly ones."""
+    return 500 if interval == '5m' else bars_for(pd.Timedelta(days=4), interval)
+
 
 def median_spreads(conn) -> dict:
     """Per market median bid-ask half-spread as a fraction (market_scores.spread_pct is a percentage)."""
@@ -281,15 +291,15 @@ def live_replays(conn, candles_db) -> tuple:
 # ------------------------------------- 4. rule variants, walk-forward
 
 def _study_market(args):
-    db_path, market = args
+    db_path, market, interval = args
     candles = _candles(db_path, market)
-    if len(candles) < 500:
+    if len(candles) < min_history(interval):
         return []
     snaps = full_series_snapshots(candles)
     out = []
     for period, (start, end) in PERIODS.items():
         window = snaps.loc[start:end]
-        if len(window) < 288:  # less than a day of data
+        if len(window) < bars_for(pd.Timedelta(days=1), interval):  # less than a day of data
             continue
         hold_return = (window.price.iloc[-1] / window.price.iloc[0] - 1) * 100
         for name, rules in VARIANTS.items():
@@ -301,9 +311,9 @@ def _study_market(args):
     return out
 
 
-def rule_study(markets, candles_db) -> tuple:
+def rule_study(markets, candles_db, interval='5m') -> tuple:
     with ProcessPoolExecutor() as pool:
-        frames = [f for chunk in pool.map(_study_market, [(candles_db, m) for m in markets]) for f in chunk]
+        frames = [f for chunk in pool.map(_study_market, [(candles_db, m, interval) for m in markets]) for f in chunk]
     df = pd.concat(frames, ignore_index=True)
     hold = df[df.variant == '__buy_and_hold__'].groupby('period').hold_return.agg(['mean', 'median', 'size'])
     trades = df[df.variant != '__buy_and_hold__']
@@ -332,13 +342,13 @@ def rule_study(markets, candles_db) -> tuple:
 # --------------------------------------------- 5. signal forward returns
 
 def _signal_edges(args):
-    db_path, market = args
+    db_path, market, interval = args
     candles = _candles(db_path, market)
-    if len(candles) < 500:
+    if len(candles) < min_history(interval):
         return None
     snaps = full_series_snapshots(candles)
-    grid = candles.close.resample('5min').last().ffill()
-    horizons = {'1h': 12, '4h': 48, '24h': 288}
+    grid = candles.close.resample(pd.Timedelta(milliseconds=INTERVAL_MS[interval])).last().ffill()
+    horizons = {h: bars_for(pd.Timedelta(h), interval) for h in ('1h', '4h', '24h')}
     fwd = {h: (grid.shift(-k) / grid - 1).reindex(snaps.index) * 100 for h, k in horizons.items()}
     rows = []
     for name, only in (('signal 1', STRONG), ('signal 2', MODERATE), ('signal 3', NEAR_SUPPORT)):
@@ -356,9 +366,9 @@ def _signal_edges(args):
     return pd.DataFrame(rows)
 
 
-def signal_edges(markets, candles_db) -> tuple:
+def signal_edges(markets, candles_db, interval='5m') -> tuple:
     with ProcessPoolExecutor() as pool:
-        frames = [f for f in pool.map(_signal_edges, [(candles_db, m) for m in markets]) if f is not None]
+        frames = [f for f in pool.map(_signal_edges, [(candles_db, m, interval) for m in markets]) if f is not None]
     df = pd.concat(frames, ignore_index=True).dropna()
     g = df.groupby(['signal', 'period'], sort=False)
     table = pd.DataFrame({
@@ -421,13 +431,21 @@ def market_selection(conn, candles_db) -> tuple:
 
 # ---------------------------------------------------------------- main
 
+HOURLY_SECTIONS = ('4', '5', '7')  # section 7 arrives with the rule-search work
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--log-db', required=True)
     parser.add_argument('--candles', required=True)
     parser.add_argument('--out', default='data/analysis')
     parser.add_argument('--sections', default='1,2,3,4,5,6', help='comma-separated section numbers to run')
+    parser.add_argument('--interval', default='5m', choices=list(INTERVAL_MS), help='candle interval of --candles')
     args = parser.parse_args(argv)
+    if args.interval != '5m':
+        # the other sections replay or compare against 5-minute candles
+        disallowed = set(args.sections.split(',')) - set(HOURLY_SECTIONS)
+        if disallowed:
+            parser.error(f"--interval {args.interval} supports only sections {','.join(HOURLY_SECTIONS)}, not {','.join(sorted(disallowed))}")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -437,8 +455,8 @@ def main(argv=None) -> int:
         '1': lambda: live_run(conn),
         '2': lambda: bug_reproduction(conn, args.candles),
         '3': lambda: live_replays(conn, args.candles),
-        '4': lambda: rule_study(monitored, args.candles),
-        '5': lambda: signal_edges(monitored, args.candles),
+        '4': lambda: rule_study(monitored, args.candles, args.interval),
+        '5': lambda: signal_edges(monitored, args.candles, args.interval),
         '6': lambda: market_selection(conn, args.candles),
     }
     md, results = ['# Bender log analysis', ''], {}
