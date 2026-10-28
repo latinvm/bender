@@ -56,6 +56,16 @@ class Rules:
     require_uptrend: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class Costs:
+    """Trading costs: fees as fractions of the traded value, half_spread as a fraction of the price."""
+    taker_fee: float = 0.0025
+    maker_fee: float = 0.0015
+    half_spread: float = 0.0
+
+
+TAKER = Costs()
+
 LIVE_RULES = Rules()
 AUG_OCT_RULES = Rules(near_support_macd_margin=0.000001)
 
@@ -124,8 +134,8 @@ def full_series_snapshots(candles: pd.DataFrame) -> pd.DataFrame:
 
 
 def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.DataFrame] = None,
-           max_positions: Optional[int] = 3, stake: float = 10.0, fee_rate: float = 0.0025,
-           occupied=(), fill: Optional[Callable] = None) -> pd.DataFrame:
+           max_positions: Optional[int] = 3, stake: float = 10.0,
+           costs: Costs = TAKER, spreads: Optional[dict] = None, occupied=(), fill: Optional[Callable] = None) -> pd.DataFrame:
     """Simulate the portfolio over time.
 
     Args:
@@ -134,6 +144,10 @@ def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.Dat
             monitored, in evaluation order; without it every market is
             evaluated at every snapshot. Held markets are always managed.
         max_positions: concurrent position limit (None: unlimited)
+        costs: fees and default half-spread; market orders buy at
+            price * (1 + half_spread) and sell at price * (1 - half_spread),
+            both paying the taker fee. entry_price/exit_price are those fills
+        spreads: market -> half-spread fraction, overriding costs.half_spread
         occupied: (start, end) intervals of slots held by positions outside
             the simulation (e.g. the stuck delisted RVN-EUR position)
         fill: optional fill(market, t) -> snapshot row for a held market
@@ -167,7 +181,8 @@ def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.Dat
                 reason = buy_reason(snap, rules)
                 full = max_positions is not None and len(open_positions) + held_elsewhere >= max_positions
                 if reason and not full:
-                    open_positions[market] = dict(market=market, entry_t=t, entry_price=snap.price,
+                    entry = snap.price * (1 + _half_spread(market, costs, spreads))
+                    open_positions[market] = dict(market=market, entry_t=t, entry_price=entry,
                                                   entry_reason=reason, peak=snap.price, trough=snap.price)
                 continue
             position['peak'] = max(position['peak'], snap.price)
@@ -175,10 +190,15 @@ def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.Dat
             reason = sell_reason(snap, snap.price, position['entry_price'], position['peak'],
                                  t - position['entry_t'], rules)
             if reason:
-                trades.append(_close(open_positions.pop(market), t, snap.price, reason, stake, fee_rate))
-    trades += [_close(p, None, None, None, stake, fee_rate) for p in open_positions.values()]
+                exit_fill = snap.price * (1 - _half_spread(market, costs, spreads))
+                trades.append(_close(open_positions.pop(market), t, exit_fill, reason, stake, costs.taker_fee))
+    trades += [_close(p, None, None, None, stake, costs.taker_fee) for p in open_positions.values()]
     return pd.DataFrame(trades, columns=['market', 'entry_t', 'entry_price', 'entry_reason', 'exit_t', 'exit_price',
                                          'exit_reason', 'pl_pct', 'pl_eur', 'hold', 'mfe_pct', 'mae_pct'])
+
+
+def _half_spread(market, costs: Costs, spreads: Optional[dict]) -> float:
+    return costs.half_spread if spreads is None else spreads.get(market, costs.half_spread)
 
 
 def _close(position, t, price, reason, stake, fee_rate) -> dict:

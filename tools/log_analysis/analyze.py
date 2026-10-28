@@ -63,6 +63,12 @@ VARIANTS = {
 
 # ---------------------------------------------------------------- helpers
 
+def median_spreads(conn) -> dict:
+    """Per market median bid-ask half-spread as a fraction (market_scores.spread_pct is a percentage)."""
+    spreads = pd.read_sql('SELECT market, spread_pct FROM market_scores WHERE spread_pct IS NOT NULL', conn)
+    return (spreads.groupby('market')['spread_pct'].median() / 200).to_dict()
+
+
 def md_table(df: pd.DataFrame, floatfmt: str = '{:.2f}') -> list:
     df = df.reset_index() if df.index.name or isinstance(df.index, pd.MultiIndex) else df
     head = '| ' + ' | '.join(str(c) for c in df.columns) + ' |'
