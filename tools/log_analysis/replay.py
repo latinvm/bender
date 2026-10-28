@@ -48,15 +48,16 @@ class Rules:
     technical_exit: bool = True
     trailing_stop_pct: Optional[float] = None
     max_hold: Optional[pd.Timedelta] = None
-    # Live signal 3 accepts MACD up to 0.000001 below its signal line: an
-    # absolute margin larger than MACD itself for sub-cent coins, so it
-    # also fires when momentum is bearish
-    near_support_macd_margin: float = 0.000001
+    # Signal 3 needs MACD above its signal line (margin 0). The Aug-Oct bot
+    # accepted MACD up to 0.000001 below it: an absolute margin larger than
+    # MACD itself for sub-cent coins, so it also fired when momentum was bearish
+    near_support_macd_margin: float = 0.0
     # '1d' / '7d': only buy while the price is above its 1-day / 7-day average
     require_uptrend: Optional[str] = None
 
 
 LIVE_RULES = Rules()
+AUG_OCT_RULES = Rules(near_support_macd_margin=0.000001)
 
 
 def buy_reason(s, rules: Rules) -> Optional[str]:

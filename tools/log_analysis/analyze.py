@@ -12,6 +12,7 @@ Log timestamps are UTC (verified against Bitvavo candles).
 """
 
 import argparse
+from dataclasses import replace
 import json
 import sqlite3
 import sys
@@ -23,7 +24,7 @@ import pandas as pd
 
 from tools.log_analysis.candles import CandleStore
 from tools.log_analysis.replay import (
-    MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, sell_reason, window_snapshot,
+    AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, sell_reason, window_snapshot,
     window_snapshots)
 
 FEE_ROUND_TRIP_PCT = 0.5
@@ -38,24 +39,24 @@ PERIODS = {
 }
 
 VARIANTS = {
-    'live rules': Rules(),
-    'signal 1 only (RSI<40)': Rules(signals=(STRONG,)),
-    'signal 2 only (RSI<50 + MACD up)': Rules(signals=(MODERATE,)),
-    'signal 3 only (near lower BB)': Rules(signals=(NEAR_SUPPORT,)),
-    'signal 3 strict MACD': Rules(near_support_macd_margin=0.0),
-    'no technical exit (TP 15 / SL 5)': Rules(technical_exit=False),
-    'TP 5 / SL 3, no technical exit': Rules(technical_exit=False, take_profit_pct=5, stop_loss_pct=3),
-    'TP 3 / SL 3, no technical exit': Rules(technical_exit=False, take_profit_pct=3, stop_loss_pct=3),
-    'TP 10 / SL 5, no technical exit': Rules(technical_exit=False, take_profit_pct=10, stop_loss_pct=5),
-    'trailing 3%, SL 5, no technical exit': Rules(technical_exit=False, trailing_stop_pct=3),
-    'trailing 5%, SL 5, no technical exit': Rules(technical_exit=False, trailing_stop_pct=5),
-    'live rules + max hold 24h': Rules(max_hold=pd.Timedelta(hours=24)),
-    'RSI<30 only, TP 5 / SL 3, no technical exit': Rules(signals=(STRONG,), rsi_buy_strong=30, technical_exit=False,
-                                                         take_profit_pct=5, stop_loss_pct=3),
-    'live rules, only above 1-day average': Rules(require_uptrend='1d'),
-    'live rules, only above 7-day average': Rules(require_uptrend='7d'),
-    'TP 3 / SL 3, no technical exit, only above 7-day average': Rules(technical_exit=False, take_profit_pct=3,
-                                                                       stop_loss_pct=3, require_uptrend='7d'),
+    'Aug-Oct live rules': AUG_OCT_RULES,
+    'signal 1 only (RSI<40)': replace(AUG_OCT_RULES, signals=(STRONG,)),
+    'signal 2 only (RSI<50 + MACD up)': replace(AUG_OCT_RULES, signals=(MODERATE,)),
+    'signal 3 only (near lower BB)': replace(AUG_OCT_RULES, signals=(NEAR_SUPPORT,)),
+    'current rules (strict signal 3)': Rules(),
+    'no technical exit (TP 15 / SL 5)': replace(AUG_OCT_RULES, technical_exit=False),
+    'TP 5 / SL 3, no technical exit': replace(AUG_OCT_RULES, technical_exit=False, take_profit_pct=5, stop_loss_pct=3),
+    'TP 3 / SL 3, no technical exit': replace(AUG_OCT_RULES, technical_exit=False, take_profit_pct=3, stop_loss_pct=3),
+    'TP 10 / SL 5, no technical exit': replace(AUG_OCT_RULES, technical_exit=False, take_profit_pct=10, stop_loss_pct=5),
+    'trailing 3%, SL 5, no technical exit': replace(AUG_OCT_RULES, technical_exit=False, trailing_stop_pct=3),
+    'trailing 5%, SL 5, no technical exit': replace(AUG_OCT_RULES, technical_exit=False, trailing_stop_pct=5),
+    'live rules + max hold 24h': replace(AUG_OCT_RULES, max_hold=pd.Timedelta(hours=24)),
+    'RSI<30 only, TP 5 / SL 3, no technical exit': replace(AUG_OCT_RULES, signals=(STRONG,), rsi_buy_strong=30,
+                                                                  technical_exit=False, take_profit_pct=5, stop_loss_pct=3),
+    'live rules, only above 1-day average': replace(AUG_OCT_RULES, require_uptrend='1d'),
+    'live rules, only above 7-day average': replace(AUG_OCT_RULES, require_uptrend='7d'),
+    'TP 3 / SL 3, no technical exit, only above 7-day average': replace(AUG_OCT_RULES, technical_exit=False, take_profit_pct=3,
+                                                                                        stop_loss_pct=3, require_uptrend='7d'),
 }
 
 
@@ -154,7 +155,7 @@ def _reproduce(args):
         if buggy is None or fixed is None:
             continue
         out.append((check_id, market, rsi, price, buggy.rsi, buggy.close, fixed.rsi, fixed.close,
-                    bool(logged_buy), buy_reason(buggy, Rules()) is not None))
+                    bool(logged_buy), buy_reason(buggy, AUG_OCT_RULES) is not None))
     return out
 
 
@@ -208,7 +209,7 @@ def exit_agreement(live: pd.DataFrame, buggy: dict) -> dict:
             if t <= entry_t:
                 continue
             peak = max(peak, snap.price)
-            reason = sell_reason(snap, snap.price, r.entry_price, peak, t - entry_t, Rules())
+            reason = sell_reason(snap, snap.price, r.entry_price, peak, t - entry_t, AUG_OCT_RULES)
             if reason:
                 exit_t, price = t, snap.price
                 break
@@ -260,10 +261,10 @@ def live_replays(conn, candles_db) -> tuple:
         return window_snapshot(cache[market], t, reverse=True)
 
     runs = {
-        'as live (reversed candles, live rules)': replay(buggy, Rules(), schedule=schedule, occupied=occupied, fill=fill),
-        'fixed candles, live rules': replay(full, Rules(), schedule=schedule),
-        'fixed candles, signal 3 strict MACD': replay(full, Rules(near_support_macd_margin=0.0), schedule=schedule),
-        'fixed candles, signal 1 only': replay(full, Rules(signals=(STRONG,)), schedule=schedule),
+        'as live (reversed candles, live rules)': replay(buggy, AUG_OCT_RULES, schedule=schedule, occupied=occupied, fill=fill),
+        'fixed candles, Aug-Oct rules': replay(full, AUG_OCT_RULES, schedule=schedule),
+        'fixed candles, current rules': replay(full, Rules(), schedule=schedule),
+        'fixed candles, signal 1 only': replay(full, replace(AUG_OCT_RULES, signals=(STRONG,)), schedule=schedule),
     }
     live_closed = live[(live.pre_log == 0)].dropna(subset=['exit_ts'])
     table = {'live run (actual)': trade_stats(live_closed)}
@@ -368,7 +369,7 @@ def _signal_edges(args):
     fwd = {h: (grid.shift(-k) / grid - 1).reindex(snaps.index) * 100 for h, k in horizons.items()}
     rows = []
     for name, only in (('signal 1', STRONG), ('signal 2', MODERATE), ('signal 3', NEAR_SUPPORT)):
-        single = Rules(signals=(only,))
+        single = replace(AUG_OCT_RULES, signals=(only,))
         fired = pd.Series([buy_reason(s, single) is not None for s in snaps.itertuples()], index=snaps.index)
         starts = fired & ~fired.shift(1, fill_value=False)
         for period, (start, end) in PERIODS.items():

@@ -9,7 +9,7 @@ import pytest
 
 from trader.enhanced_strategy import EnhancedStrategy
 from tools.log_analysis.replay import (
-    Rules, buy_reason, full_series_snapshots, replay, sell_reason, window_snapshot)
+    AUG_OCT_RULES, NEAR_SUPPORT, Rules, buy_reason, full_series_snapshots, replay, sell_reason, window_snapshot)
 
 FIVE_MIN = pd.Timedelta(minutes=5)
 T0 = pd.Timestamp('2026-09-01 00:00')
@@ -195,3 +195,10 @@ class TestUptrendFilter:
         snaps = full_series_snapshots(rising)
 
         assert (snaps[['trend_1d', 'trend_7d']].iloc[-1] > 0).all()
+
+
+def test_aug_oct_margin_is_reproducible():
+    s = SimpleNamespace(rsi=55.0, macd=1e-9, macd_signal=2e-9, close=0.0100, bb_lower=0.0100, bb_upper=0.012,
+                        trend_1d=0.0, trend_7d=0.0)
+    assert buy_reason(s, Rules()) is None
+    assert buy_reason(s, AUG_OCT_RULES) == NEAR_SUPPORT

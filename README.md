@@ -44,7 +44,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - **Think of it as**: A ball rolling downhill that's starting to slow and reverse
 - **Example**: `DOGS-EUR: RSI 38.28, MACD crossing up → Moderate + Momentum! ✓ BUY`
 
-**Signal 3: Near Support + Momentum (Price < Lower BB × 1.01 AND MACD ≈ Signal)**
+**Signal 3: Near Support + Momentum (Price < Lower BB × 1.01 AND MACD > Signal)**
 - **What it means**: Price hit a support level (floor) and momentum is about to turn
 - **Think of it as**: A basketball hitting the floor - about to bounce
 - **Example**: `FLOKI-EUR: At support, MACD crossing → Near Support! ✓ BUY`

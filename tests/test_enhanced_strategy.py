@@ -178,14 +178,14 @@ class TestBuySignals:
         assert reason == "Moderate Oversold + Momentum"
 
     def test_buy_signal_3_near_support_with_momentum(self, strategy, sample_df):
-        """Test Signal 3: Near Support + Momentum (Price < Lower BB * 1.01 AND MACD crossing)"""
+        """Test Signal 3: Near Support + Momentum (Price < Lower BB * 1.01 AND MACD > Signal)"""
         df = strategy.calculate_indicators(sample_df.copy())
 
         # Set indicators to trigger signal 3
         df.loc[df.index[-1], 'RSI_14'] = 55.0  # Above 50
         df.loc[df.index[-1], 'close'] = 99.0  # Price near lower band
         df.loc[df.index[-1], 'BBL_20_2.0_2.0'] = 98.5  # Lower band
-        df.loc[df.index[-1], 'MACD_12_26_9'] = 0.5  # MACD crossing signal
+        df.loc[df.index[-1], 'MACD_12_26_9'] = 0.51  # MACD above signal
         df.loc[df.index[-1], 'MACDs_12_26_9'] = 0.5
 
         should_buy, reason = strategy.should_buy(df)
@@ -611,3 +611,21 @@ class TestGetHistoricalData:
         strategy.market_ops.get_historical_candles.assert_called_with(
             'TEST-EUR', interval='1h', limit=200
         )
+
+
+def one_row(macd, macd_signal):
+    """One-row indicator frame: price at the lower band, RSI neutral, so only signal 3 can fire."""
+    return pd.DataFrame([{
+        'close': 0.010, 'BBL_20_2.0_2.0': 0.0100, 'BBU_20_2.0_2.0': 0.012, 'RSI_14': 55.0,
+        'MACD_12_26_9': macd, 'MACDs_12_26_9': macd_signal,
+    }])
+
+
+def test_near_support_requires_macd_above_signal(strategy):
+    df = one_row(macd=1e-9, macd_signal=2e-9)  # bearish by a hair: Aug-Oct code bought here
+    assert strategy.should_buy(df) == (False, "")
+
+
+def test_near_support_with_rising_macd_buys(strategy):
+    df = one_row(macd=2e-9, macd_signal=1e-9)
+    assert strategy.should_buy(df) == (True, "Near Support + Momentum")

@@ -103,7 +103,7 @@ class EnhancedStrategy:
         moderate_oversold_with_momentum = (rsi < self.rsi_buy_moderate) and (macd > macd_signal)
 
         # Signal 3: Price near support with momentum
-        near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal - 0.000001)
+        near_support_with_momentum = (price < lower_bb * 1.01) and (macd > macd_signal)
 
         logger.debug(f"Signal 1 - Strong Oversold (RSI < {self.rsi_buy_strong:g}): {strong_oversold}")
         logger.debug(f"Signal 2 - Moderate + Momentum (RSI < {self.rsi_buy_moderate:g} + MACD>Signal): {moderate_oversold_with_momentum}")
