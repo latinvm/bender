@@ -24,8 +24,9 @@ import pandas as pd
 
 from tools.log_analysis.candles import CandleStore
 from tools.log_analysis.replay import (
-    AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, sell_reason, window_snapshot,
+    AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, window_snapshot,
     window_snapshots)
+from tools.log_analysis.validation import exit_agreement
 
 FEE_ROUND_TRIP_PCT = 0.5
 FIVE_MIN = pd.Timedelta(minutes=5)
@@ -190,40 +191,6 @@ def bug_reproduction(conn, candles_db, n=3000, seed=7) -> tuple:
     return md, result
 
 
-def exit_agreement(live: pd.DataFrame, buggy: dict) -> dict:
-    """Start each live trade at its real entry and let the as-live replay pick the exit.
-
-    The portfolio replay diverges from the live run as soon as one exit
-    differs (the position limit was binding most of the time), so the
-    simulator is validated trade by trade instead.
-    """
-    rows = []
-    closed = live[(live.pre_log == 0) & live.exit_ts.notna()]
-    for r in closed.itertuples():
-        snaps = buggy.get(r.market)
-        if snaps is None:
-            continue
-        entry_t = r.entry_ts.floor('5min')
-        peak, exit_t, reason, price = r.entry_price, None, None, None
-        for t, snap in zip(snaps.index, snaps.itertuples(index=False), strict=True):
-            if t <= entry_t:
-                continue
-            peak = max(peak, snap.price)
-            reason = sell_reason(snap, snap.price, r.entry_price, peak, t - entry_t, AUG_OCT_RULES)
-            if reason:
-                exit_t, price = t, snap.price
-                break
-        if exit_t is None:
-            continue
-        sim_pl = ((price / r.entry_price) * (1 - 0.0025) - 1 - 0.0025) * 100
-        rows.append(dict(same_time=abs(exit_t - r.exit_ts.floor('5min')) <= pd.Timedelta(minutes=15),
-                         same_reason=reason == r.exit_reason, live_pl=r.pl_pct, sim_pl=sim_pl))
-    df = pd.DataFrame(rows)
-    return dict(trades=len(df), of=len(closed), same_time_pct=df.same_time.mean() * 100,
-                same_reason_pct=df.same_reason.mean() * 100, pl_correlation=df[['live_pl', 'sim_pl']].corr().iloc[0, 1],
-                live_avg_pl=df.live_pl.mean(), sim_avg_pl=df.sim_pl.mean())
-
-
 # --------------------------------------- 3. replays on the live schedule
 
 def _buggy_snapshots(args):
@@ -281,7 +248,7 @@ def live_replays(conn, candles_db) -> tuple:
         matched += not near.empty
     n_live = int((live.pre_log == 0).sum())
     no_candles = sorted(set(schedule.market) - set(full))
-    exits = exit_agreement(live, buggy)
+    exits = exit_agreement(live, buggy, AUG_OCT_RULES)
     result = dict(runs=table.to_dict(orient='index'), live_entries_reproduced=matched, live_entries=n_live,
                   exit_agreement=exits,
                   markets_without_candles=no_candles,
