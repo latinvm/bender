@@ -14,8 +14,8 @@ def candle_frame(closes, start=T0):
                          'close': closes, 'volume': 1000.0}, index=index)
 
 
-def flat_snapshots(prices, rsi):
+def flat_snapshots(prices, rsi, low=None, high=None):
     """Snapshot frame with constant indicators: rsi decides buy (<40) / sell (>60, MACD bearish)."""
     index = pd.date_range(T0, periods=len(prices), freq='5min')
     return pd.DataFrame({'rsi': rsi, 'macd': -1.0, 'macd_signal': 0.0, 'close': prices, 'price': prices,
-                         'bb_lower': 0.0, 'bb_upper': 1e9, 'trend_1d': np.nan, 'trend_7d': np.nan}, index=index)
+                         'low': prices if low is None else low, 'high': prices if high is None else high, 'bb_lower': 0.0, 'bb_upper': 1e9, 'trend_1d': np.nan, 'trend_7d': np.nan}, index=index)

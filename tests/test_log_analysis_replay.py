@@ -200,3 +200,43 @@ def test_per_market_spread_overrides_the_default():
     snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.2], rsi=[30, 50, 50])}
     [t] = replay(snaps, rules=Rules(take_profit_pct=15.0), costs=Costs(half_spread=0.0), spreads={'A-EUR': 0.002}).itertuples()
     assert t.entry_price == pytest.approx(1.002)
+
+
+def test_limit_entry_fills_when_price_trades_through():
+    snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.0], rsi=[30, 50, 50], low=[1.0, 0.994, 1.0])}
+    [t] = replay(snaps, rules=Rules(entry_order='limit', limit_offset_pct=0.5)).itertuples()
+    assert t.entry_t == T0 + FIVE_MIN and t.entry_price == pytest.approx(0.995)
+
+
+LIMIT = Rules(entry_order='limit', limit_offset_pct=0.5, limit_timeout=pd.Timedelta(minutes=10))
+
+
+def test_unfilled_limit_entry_expires_without_a_trade():
+    snaps = {'A-EUR': flat_snapshots([1.0] * 4, rsi=[30, 50, 50, 50])}   # lows never reach 0.995
+    assert replay(snaps, rules=LIMIT).empty                              # no fill, no fee
+
+
+def test_expired_limit_order_releases_its_slot():
+    snaps = {'A-EUR': flat_snapshots([1.0] * 5, rsi=[30, 50, 50, 50, 50]),
+             'B-EUR': flat_snapshots([1.0] * 5, rsi=[50, 50, 50, 30, 50], low=[1.0, 1.0, 1.0, 1.0, 0.99])}
+    trades = replay(snaps, rules=LIMIT, max_positions=1)
+    assert trades.market.tolist() == ['B-EUR']    # A's order expired after T0+10min, B ordered at T0+15min
+
+
+def test_pending_limit_order_reserves_a_slot():
+    snaps = {m: flat_snapshots([1.0, 1.0], rsi=[30, 50], low=[1.0, 0.99]) for m in ('A-EUR', 'B-EUR')}
+    trades = replay(snaps, rules=LIMIT, max_positions=1)
+    assert trades.market.tolist() == ['A-EUR']
+
+
+def test_limit_take_profit_fills_at_target_with_maker_fee():
+    snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.05], rsi=[30, 50, 50], high=[1.0, 1.0, 1.16])}
+    [t] = replay(snaps, rules=Rules(take_profit_order='limit', take_profit_pct=15.0)).itertuples()
+    assert t.exit_price == pytest.approx(1.15) and t.exit_reason == 'take_profit'
+    assert t.pl_eur == pytest.approx(10 * 1.15 * (1 - 0.0015) - 10 * 1.0025)
+
+
+def test_limit_entry_pays_maker_fee_on_entry():
+    snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.0, 1.2], rsi=[30, 50, 50, 50], low=[1.0, 0.99, 1.0, 1.0])}
+    [t] = replay(snaps, rules=Rules(entry_order='limit', take_profit_pct=15.0)).itertuples()
+    assert t.pl_eur == pytest.approx(10 * (1.2 / 0.995) * 0.9975 - 10 * 1.0015)

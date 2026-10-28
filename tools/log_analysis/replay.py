@@ -24,7 +24,7 @@ import pandas as pd
 from trader.enhanced_strategy import REQUIRED_INDICATORS, EnhancedStrategy
 
 INDICATORS = dict(zip(REQUIRED_INDICATORS, ['rsi', 'macd', 'macd_signal', 'bb_lower', 'bb_upper'], strict=True))
-SNAPSHOT_COLUMNS = ['rsi', 'macd', 'macd_signal', 'bb_lower', 'bb_upper', 'close', 'price', 'trend_1d', 'trend_7d']
+SNAPSHOT_COLUMNS = ['rsi', 'macd', 'macd_signal', 'bb_lower', 'bb_upper', 'close', 'price', 'low', 'high', 'trend_1d', 'trend_7d']
 TREND_WINDOWS = {'trend_1d': '1D', 'trend_7d': '7D'}
 
 STRONG, MODERATE, NEAR_SUPPORT = 'Strong Oversold', 'Moderate Oversold + Momentum', 'Near Support + Momentum'
@@ -54,6 +54,13 @@ class Rules:
     near_support_macd_margin: float = 0.0
     # '1d' / '7d': only buy while the price is above its 1-day / 7-day average
     require_uptrend: Optional[str] = None
+    # 'limit': buy with a limit order limit_offset_pct below the signal price,
+    # valid for limit_timeout; it fills (maker fee, no spread) once a bar's low reaches it
+    entry_order: str = 'market'
+    limit_offset_pct: float = 0.5
+    limit_timeout: pd.Timedelta = pd.Timedelta(minutes=15)
+    # 'limit': rest the take-profit at entry * (1 + take_profit_pct / 100); fills when a bar's high reaches it
+    take_profit_order: str = 'market'
 
 
 @dataclass(frozen=True)
@@ -111,7 +118,8 @@ def window_snapshot(candles: pd.DataFrame, at: pd.Timestamp, window: int = 100, 
     last = df.iloc[-1]
     # The live bot only sees 100 candles: no multi-day trend in this mode
     return SimpleNamespace(**{name: float(last[col]) for col, name in INDICATORS.items()},
-                           close=float(last['close']), price=price, candle_ts=df.index[-1],
+                           close=float(last['close']), price=price,
+                           low=float(recent['low'].iloc[-1]), high=float(recent['high'].iloc[-1]), candle_ts=df.index[-1],
                            trend_1d=float('nan'), trend_7d=float('nan'))
 
 
@@ -148,6 +156,9 @@ def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.Dat
             price * (1 + half_spread) and sell at price * (1 - half_spread),
             both paying the taker fee. entry_price/exit_price are those fills
         spreads: market -> half-spread fraction, overriding costs.half_spread
+        Limit orders (Rules.entry_order / take_profit_order) fill at their
+        limit price with the maker fee and no spread; a pending buy counts
+        toward max_positions until it fills or expires.
         occupied: (start, end) intervals of slots held by positions outside
             the simulation (e.g. the stuck delisted RVN-EUR position)
         fill: optional fill(market, t) -> snapshot row for a held market
@@ -166,27 +177,43 @@ def replay(snapshots: dict, rules: Rules = LIVE_RULES, schedule: Optional[pd.Dat
                 monitored.setdefault(t, []).append(market)
     times = sorted(set(monitored) | {t for r in rows.values() for t in r})
 
-    open_positions, trades = {}, []
+    open_positions, pending, trades = {}, {}, []
     for t in times:
+        for market in [m for m, (_, deadline, _) in pending.items() if t > deadline]:
+            del pending[market]
         held_elsewhere = sum(1 for start, end in occupied if start <= t < end)
         candidates = monitored.get(t, [])
-        for market in candidates + [m for m in open_positions if m not in candidates]:
+        for market in candidates + [m for m in [*open_positions, *pending] if m not in candidates]:
             snap = rows.get(market, {}).get(t)
             if snap is None and fill is not None and market in open_positions:
                 snap = fill(market, t)
             if snap is None:
                 continue
+            if market in pending:
+                limit, _, reason = pending[market]
+                if snap.low <= limit:
+                    del pending[market]
+                    open_positions[market] = dict(market=market, entry_t=t, entry_price=limit, entry_fee=costs.maker_fee,
+                                                  entry_reason=reason, peak=snap.price, trough=min(snap.price, snap.low))
+                continue
             position = open_positions.get(market)
             if position is None:
                 reason = buy_reason(snap, rules)
-                full = max_positions is not None and len(open_positions) + held_elsewhere >= max_positions
+                full = max_positions is not None and len(open_positions) + len(pending) + held_elsewhere >= max_positions
                 if reason and not full:
-                    entry = snap.price * (1 + _half_spread(market, costs, spreads))
-                    open_positions[market] = dict(market=market, entry_t=t, entry_price=entry,
-                                                  entry_reason=reason, peak=snap.price, trough=snap.price)
+                    if rules.entry_order == 'limit':
+                        pending[market] = (snap.price * (1 - rules.limit_offset_pct / 100), t + rules.limit_timeout, reason)
+                    else:
+                        entry = snap.price * (1 + _half_spread(market, costs, spreads))
+                        open_positions[market] = dict(market=market, entry_t=t, entry_price=entry, entry_fee=costs.taker_fee,
+                                                      entry_reason=reason, peak=snap.price, trough=snap.price)
                 continue
             position['peak'] = max(position['peak'], snap.price)
             position['trough'] = min(position['trough'], snap.price)
+            target = position['entry_price'] * (1 + rules.take_profit_pct / 100)
+            if rules.take_profit_order == 'limit' and snap.high >= target:
+                trades.append(_close(open_positions.pop(market), t, target, 'take_profit', stake, costs.maker_fee))
+                continue
             reason = sell_reason(snap, snap.price, position['entry_price'], position['peak'],
                                  t - position['entry_t'], rules)
             if reason:
@@ -201,7 +228,7 @@ def _half_spread(market, costs: Costs, spreads: Optional[dict]) -> float:
     return costs.half_spread if spreads is None else spreads.get(market, costs.half_spread)
 
 
-def _close(position, t, price, reason, stake, fee_rate) -> dict:
+def _close(position, t, price, reason, stake, exit_fee) -> dict:
     entry = position['entry_price']
     trade = dict(market=position['market'], entry_t=position['entry_t'], entry_price=entry,
                  entry_reason=position['entry_reason'], exit_t=t, exit_price=price, exit_reason=reason,
@@ -210,6 +237,6 @@ def _close(position, t, price, reason, stake, fee_rate) -> dict:
     if t is not None:
         # Same accounting as the virtual wallet: fee on the stake when buying
         # and on the proceeds when selling
-        pl_eur = stake * (price / entry) * (1 - fee_rate) - stake * (1 + fee_rate)
+        pl_eur = stake * (price / entry) * (1 - exit_fee) - stake * (1 + position['entry_fee'])
         trade.update(pl_eur=pl_eur, pl_pct=pl_eur / stake * 100, hold=t - position['entry_t'])
     return trade
