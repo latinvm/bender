@@ -108,3 +108,19 @@ def test_trading_strategy_config_custom_values(clean_env):
     assert strategy_config.strategy_interval == 120
     assert strategy_config.market_cache_hours == 12
     assert strategy_config.max_candidates == 50
+
+def test_max_spread_pct_default(clean_env, monkeypatch):
+    monkeypatch.delenv('MAX_SPREAD_PCT', raising=False)
+    _, _, _, strategy_config = trader.config.get_config(load_env=False)
+    assert strategy_config.max_spread_pct == 0.5
+
+def test_max_spread_pct_from_env(clean_env, monkeypatch):
+    monkeypatch.setenv('MAX_SPREAD_PCT', '0.2')
+    _, _, _, strategy_config = trader.config.get_config(load_env=False)
+    assert strategy_config.max_spread_pct == 0.2
+
+@pytest.mark.parametrize('value', ['0', '-0.1'])
+def test_max_spread_pct_must_be_positive(clean_env, monkeypatch, value):
+    monkeypatch.setenv('MAX_SPREAD_PCT', value)
+    with pytest.raises(ValueError, match='MAX_SPREAD_PCT must be greater than 0'):
+        trader.config.get_config(load_env=False)

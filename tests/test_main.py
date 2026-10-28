@@ -212,6 +212,25 @@ def test_find_best_markets_spread_filter(mock_market_ops):
     # TIGHT-EUR should be in results, WIDE-EUR might be rejected due to spread
     assert isinstance(best_markets, list)
 
+def test_spread_above_configured_max_is_rejected(mock_market_ops, caplog):
+    """A 0.3% spread passes the default 0.5% limit but is rejected when max_spread_pct is 0.2"""
+    mock_market_ops.get_book.return_value = {
+        'bids': [['1.000', '100']],
+        'asks': [['1.003', '100']]  # 0.3% spread
+    }
+    mock_market_ops.get_historical_candles.return_value = [
+        [1672531200000 + i*3600000, '1.0', '1.5', '1.0', '1.2', '1000']
+        for i in range(10)
+    ]
+
+    assert 'TIGHT-EUR' in find_best_markets(mock_market_ops, top_50_markets=['TIGHT-EUR'])
+
+    with caplog.at_level('INFO'):
+        best_markets = find_best_markets(mock_market_ops, top_50_markets=['TIGHT-EUR'], max_spread_pct=0.2)
+
+    assert 'TIGHT-EUR' not in best_markets
+    assert 'Rejecting TIGHT-EUR: Spread too wide (0.30% > 0.2%)' in caplog.text
+
 def test_find_best_markets_volume_spike_penalty(mock_market_ops, caplog):
     """Test that volume spikes are detected and penalized"""
     import logging

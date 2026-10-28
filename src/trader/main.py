@@ -183,7 +183,8 @@ def scan_all_markets_for_top_50(market_ops: MarketOperations, cache_duration_hou
 
     return top_50
 
-def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10, top_50_markets: Optional[List[str]] = None) -> List[str]:
+def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10, top_50_markets: Optional[List[str]] = None,
+                      max_spread_pct: float = 0.5) -> List[str]:
     """STEP 2: Find the best markets from top 50 based on detailed analysis
 
     Args:
@@ -191,12 +192,13 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         top_n: Number of top markets to return (default: 3)
         max_candidates: Maximum number of markets to analyze in detail (default: 10)
         top_50_markets: Pre-filtered list of top 50 markets from Step 1 (optional)
+        max_spread_pct: Reject markets whose bid-ask spread is wider than this percentage (default: 0.5)
 
     Returns:
         List of top market symbols (e.g., ['FLOKI-EUR', 'PEPE-EUR', 'SHIB-EUR'])
 
     Improvements:
-        - Added bid-ask spread filter (rejects >0.5% spread)
+        - Added bid-ask spread filter (rejects spreads above max_spread_pct)
         - Added volume consistency check (penalizes pumps/dumps)
         - Reweighted scoring: Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
         - Now uses pre-filtered top 50 markets from Step 1 for efficiency
@@ -293,7 +295,7 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
                 spread_pct = ((best_ask - best_bid) / best_bid) * 100
 
                 # Spread score: 1.0 for 0% spread, 0.0 for >=0.5% spread
-                spread_score = max(0, min(1.0, 1.0 - (spread_pct / 0.5)))
+                spread_score = max(0, min(1.0, 1.0 - (spread_pct / max_spread_pct)))
         except Exception as e:
             logger.debug(f"Error fetching spread for {market}: {str(e)}")
 
@@ -323,8 +325,8 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
             penalty_applied = f"LOW_VOLUME (volume {volume_spike_ratio:.1f}x normal)"
 
         # Reject markets with excessive spread
-        if spread_pct > 0.5:
-            logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > 0.5%)")
+        if spread_pct > max_spread_pct:
+            logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > {max_spread_pct}%)")
             continue
 
         # A non-finite score would corrupt the ranking silently
@@ -577,7 +579,8 @@ def main():
 
             # STEP 2: Detailed analysis on top 50 to select best markets
             num_markets = virtual_config.max_positions
-            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=strategy_config.max_candidates, top_50_markets=top_50_markets)
+            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=strategy_config.max_candidates, top_50_markets=top_50_markets,
+                                       max_spread_pct=strategy_config.max_spread_pct)
 
             logger.info("\n" + "=" * 80)
             logger.info(f"FINAL SELECTION: {len(markets)} market(s) for trading")
@@ -702,7 +705,8 @@ def main():
                         fresh_top_50 = scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
                         fresh_markets = find_best_markets(market_ops, top_n=num_markets,
                                                           max_candidates=strategy_config.max_candidates,
-                                                          top_50_markets=fresh_top_50)
+                                                          top_50_markets=fresh_top_50,
+                                                          max_spread_pct=strategy_config.max_spread_pct)
                         if hasattr(strategy, 'update_markets'):
                             strategy.update_markets(fresh_markets)
                         else:

@@ -70,7 +70,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 #### 🎲 Intelligent Market Selection
 
 - **Multi-factor scoring system** analyzing 5 key metrics
-- **Bid-ask spread filtering** (rejects markets with >0.5% spread)
+- **Bid-ask spread filtering** (rejects markets wider than `MAX_SPREAD_PCT`, default 0.5%)
 - **Volume consistency checks** (detects and avoids pump & dump patterns)
 - **Risk-adjusted returns analysis** (Sharpe & Sortino ratios)
 - **Volatility-focused selection** for more trading opportunities
@@ -153,6 +153,7 @@ MAX_CANDIDATES=30                # Maximum markets to analyze in detail
 RSI_BUY_STRONG=40.0              # Signal 1 threshold: buy when RSI below this
 RSI_BUY_MODERATE=50.0            # Signal 2 threshold: buy when RSI below this AND MACD > signal
 RSI_SELL=60.0                    # Sell threshold: sell when RSI above this AND MACD < signal
+MAX_SPREAD_PCT=0.5               # Skip markets whose bid-ask spread is wider than this percentage
 ```
 
 **What These Settings Mean:**
@@ -164,6 +165,7 @@ RSI_SELL=60.0                    # Sell threshold: sell when RSI above this AND 
 - **STRATEGY_INTERVAL**: How often to check for trading signals in seconds (default: 60)
 - **MARKET_CACHE_HOURS**: How long to cache market rankings (default: 6 hours)
 - **MAX_CANDIDATES**: Number of top markets to analyze deeply (default: 30)
+- **MAX_SPREAD_PCT**: Widest bid-ask spread, in percent, a market may have and still be traded (default: 0.5). Must be greater than 0. Lower values trade only tight-spread markets.
 
 **Example Custom Configuration:**
 ```env
