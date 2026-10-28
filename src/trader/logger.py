@@ -113,7 +113,7 @@ class DailyFileHandler(logging.FileHandler):
     """
 
     def __init__(self, directory, prefix: str = '', suffix: str = '.log', clock: Callable[[], float] = time.time):
-        self.directory = Path(directory)
+        self.directory = Path(directory).resolve()
         self.prefix = prefix
         self.suffix = suffix
         self._day = self._day_of(clock())
@@ -127,15 +127,22 @@ class DailyFileHandler(logging.FileHandler):
         return self.directory / f"{self.prefix}{day}{self.suffix}"
 
     def emit(self, record):
-        # Handler.handle() holds the handler lock, so swapping streams is safe
-        day = self._day_of(record.created)
-        if day != self._day:
-            self._day = day
-            if self.stream:
-                self.stream.close()
-                self.stream = None
-            self.baseFilename = os.path.abspath(self._path_for(day))
-        super().emit(record)
+        # Handler.handle() holds the handler lock, so swapping streams is safe.
+        # Logging must never raise into the trading loop: any failure (a moved
+        # logs/ directory, a full disk) goes to handleError instead.
+        try:
+            day = self._day_of(record.created)
+            if day != self._day:
+                self._day = day
+                if self.stream:
+                    self.stream.close()
+                    self.stream = None
+                self.baseFilename = os.path.abspath(self._path_for(day))
+            if self.stream is None:
+                self.directory.mkdir(parents=True, exist_ok=True)
+            super().emit(record)
+        except Exception:
+            self.handleError(record)
 
 
 def log_level_from_env() -> int:

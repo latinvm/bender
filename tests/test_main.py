@@ -2,7 +2,7 @@ import pytest
 import logging
 from unittest.mock import Mock, patch
 import trader.main
-from trader.main import display_market_info, find_best_markets
+from trader.main import display_market_info, find_best_markets, main
 from trader.exceptions import MarketNotFoundError
 
 
@@ -320,3 +320,16 @@ def test_main_real_mode_defaults_to_connectivity_check(
     mock_market_ops.test_trade.assert_not_called()
     assert "Connectivity check failed - aborting strategy" in caplog.text
     mock_strategy.assert_not_called()
+
+def test_dotenv_is_loaded_before_logging_is_set_up(monkeypatch):
+    calls = []
+    monkeypatch.setattr('sys.argv', ['main.py'])
+    monkeypatch.setattr('trader.main.load_dotenv', lambda *a, **k: calls.append('load_dotenv'))
+
+    def stop(*a, **k):
+        calls.append('setup_logger')
+        raise SystemExit
+    monkeypatch.setattr('trader.main.setup_logger', stop)
+    with pytest.raises(SystemExit):
+        main()
+    assert calls == ['load_dotenv', 'setup_logger']

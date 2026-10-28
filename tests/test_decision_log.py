@@ -8,8 +8,9 @@ chatter moves to DEBUG, and log files roll over daily.
 
 import json
 import logging
+import shutil
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
@@ -91,6 +92,12 @@ class TestDecisionRecords:
         assert decision['action'] == 'error'
         assert 'boom' in decision['reason']
 
+    def test_failing_decision_record_does_not_break_the_cycle(self, capture):
+        strategy = make_strategy(FALLING)
+        with patch('trader.enhanced_strategy.decision_logger.info', side_effect=OSError('disk full')):
+            strategy.execute_trade()
+        strategy.market_ops.place_market_order.assert_called_once()
+
 
 def test_quiet_cycle_logs_nothing_at_info(capture):
     make_strategy(RISING).execute_trade()
@@ -125,6 +132,28 @@ class TestDailyFileHandler:
         handler.close()
 
         assert (tmp_path / 'decisions-2026-08-13.jsonl').exists()
+
+    def test_rollover_into_a_missing_directory_recreates_it(self, tmp_path):
+        logs = tmp_path / 'logs'
+        day1 = time.mktime((2026, 8, 13, 23, 59, 0, 0, 0, -1))
+        handler = DailyFileHandler(logs, clock=lambda: day1)
+        handler.handle(self._record(day1, 'first'))
+        shutil.rmtree(logs)
+        handler.handle(self._record(day1 + 120, 'second'))   # must not raise
+        handler.close()
+        assert (logs / '2026-08-14.log').read_text().strip() == 'second'
+
+    def test_unwritable_rollover_is_reported_not_raised(self, tmp_path):
+        logs = tmp_path / 'logs'
+        day1 = time.mktime((2026, 8, 13, 23, 59, 0, 0, 0, -1))
+        handler = DailyFileHandler(logs, clock=lambda: day1)
+        handler.handle(self._record(day1, 'first'))
+        shutil.rmtree(logs)
+        logs.write_text('a file where the directory should be')
+        errors = []
+        handler.handleError = errors.append
+        handler.handle(self._record(day1 + 120, 'second'))   # must not raise
+        assert len(errors) == 1
 
 
 @pytest.mark.parametrize('value, expected', [

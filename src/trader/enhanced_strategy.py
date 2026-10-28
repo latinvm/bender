@@ -287,7 +287,10 @@ class EnhancedStrategy:
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")
             action, reason = 'error', str(e)
-        self._record_decision(df, action, reason, entry_price)
+        try:
+            self._record_decision(df, action, reason, entry_price)
+        except Exception as e:
+            logger.warning(f"Could not record decision for {self.market}: {e}")
 
     def _decide_and_act(self, df: pd.DataFrame) -> tuple[str, str]:
         """Evaluate signals, place any order, and return (action, reason)."""

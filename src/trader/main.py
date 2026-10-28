@@ -3,6 +3,7 @@ import logging
 import argparse
 import signal
 import threading
+from dotenv import load_dotenv
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.market import MarketOperations
@@ -424,6 +425,7 @@ def reconcile_positions(db, market_ops, force: bool = False, tolerance: float = 
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
     parser.add_argument('command', nargs='?', default='trade', help="Command to run: trade, virtual, or backtest")
     parser.add_argument('--market', type=str, default='VET-EUR', help="Market for backtesting (e.g., VET-EUR)")
