@@ -412,8 +412,9 @@ class EnhancedStrategy:
             logger.info(f"P/L: {profit_pct:+.2f}% (€{profit_eur:+.4f})")
             return 'sell', sell_reason
 
-        # Not trading but still update price cache for TUI
-        self.get_current_price(use_cache=False)
+        # Not trading but still update price cache for TUI. A delisting first
+        # seen here goes down the same path as one seen at the signal checks.
+        self.get_current_price(use_cache=False, raise_if_delisted=True)
         if self.market in self.positions:
             logger.debug(f"HOLDING {self.market} - No sell signal")
             return 'hold', ""

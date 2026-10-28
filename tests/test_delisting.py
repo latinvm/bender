@@ -9,6 +9,7 @@ stop-loss could run.
 
 import json
 import logging
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -19,7 +20,7 @@ from trader.exceptions import MarketDelistedError, MarketNotFoundError
 from trader.multi_market_strategy import MultiMarketStrategy
 from trader.virtual_wallet import VirtualWallet
 
-from .test_decision_log import FALLING, candles
+from .test_decision_log import FALLING, RISING, candles, decisions
 
 DELISTED_RESPONSE = {'errorCode': 219, 'error': 'This market has been delisted.'}
 
@@ -212,3 +213,70 @@ def test_price_polling_survives_rotation_during_iteration():
         return 1.0
     multi.strategies['A-EUR'].get_current_price = rotate_out_b
     multi.get_current_prices()   # must not raise RuntimeError
+
+
+def real_strategy_holding_rvn(ops):
+    """Real mode (TradeDatabase patched) holding 500 RVN-EUR bought at 0.02."""
+    with patch('trader.enhanced_strategy.TradeDatabase') as db_class:
+        db_class.return_value.get_active_positions.return_value = [
+            {'market': 'RVN-EUR', 'amount': 500.0, 'entry_price': 0.02}]
+        return EnhancedStrategy(ops, 'RVN-EUR')
+
+
+RVN_FALLING = candles([c / 100 for c in FALLING])   # full history, RSI 0: no technical sell, only the stop-loss
+
+
+class TestRealPositionDelistedMidCycle:
+    """The cached ticker price is fresh and 10% below entry, so the stop-loss
+    would sell on it. Only the delisting guards stop that sell order."""
+
+    def _strategy(self, ops):
+        strategy = real_strategy_holding_rvn(ops)
+        strategy.last_price, strategy.last_price_timestamp = 0.018, time.time()
+        return strategy
+
+    def _assert_left_for_manual_handling(self, strategy, caplog):
+        strategy.market_ops.place_market_order.assert_not_called()
+        strategy.db.record_trade_exit.assert_not_called()
+        assert strategy.positions == {'RVN-EUR': 500.0}
+        assert [d['action'] for d in decisions(caplog)] == ['delisted']
+
+    def test_delisting_seen_by_price_polling_during_the_candle_fetch(self, caplog):
+        ops = realistic_delisted_ops()
+        strategy = self._strategy(ops)
+
+        def candles_while_the_tui_polls(*args, **kwargs):
+            strategy.get_current_price(use_cache=False)   # TUI thread gets the 219 mid-cycle
+            return RVN_FALLING
+        ops.get_historical_candles.side_effect = candles_while_the_tui_polls
+
+        with caplog.at_level(logging.INFO):
+            strategy.execute_trade()
+
+        self._assert_left_for_manual_handling(strategy, caplog)
+        # should_sell aborts on the flag; it never evaluates exits on the stale cached price
+        assert not [r for r in caplog.records if 'SELL SIGNAL TRIGGERED' in r.getMessage()]
+
+    def test_delisting_first_seen_at_the_sell_order_price_fetch(self, caplog):
+        ops = realistic_delisted_ops()
+        ops.get_historical_candles.side_effect = None
+        ops.get_historical_candles.return_value = RVN_FALLING
+        strategy = self._strategy(ops)
+
+        with caplog.at_level(logging.INFO):
+            strategy.execute_trade()
+
+        ops.get_ticker.assert_called_once()   # the sell check used the cache; the 219 came at the order's fetch
+        self._assert_left_for_manual_handling(strategy, caplog)
+
+
+def test_delisting_first_seen_at_the_price_refresh_is_handled_in_the_same_cycle(caplog):
+    ops = realistic_delisted_ops()
+    ops.get_historical_candles.side_effect = None
+    ops.get_historical_candles.return_value = candles(RISING)   # no position, no buy signal: only the refresh fetches
+    strategy = EnhancedStrategy(ops, 'NEW-EUR', virtual_wallet=Mock(get_active_positions=Mock(return_value=[])))
+
+    with caplog.at_level(logging.INFO):
+        strategy.execute_trade()
+
+    assert [d['action'] for d in decisions(caplog)] == ['delisted']
