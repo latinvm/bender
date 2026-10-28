@@ -228,6 +228,14 @@ trader trade --test-trade
 - A read-only connectivity check verifies your API credentials without placing any orders. Pass `--test-trade` if you explicitly want a real minimum-size buy+sell verification cycle instead.
 - Recorded positions are reconciled against your actual exchange balances. If the database references assets you no longer hold, Bender refuses to trade until you clean up the database or pass `--force`.
 
+**If a market you hold is delisted (real mode):** Bender stops trading that market, logs the delisting once and leaves the position alone: it cannot be sold through the API, and Bender never changes a real position automatically. The position stays in the database, so it keeps counting toward `MAX_POSITIONS`, and once the coins have left your account the startup reconciliation refuses to trade. Handle the coins on Bitvavo, then, with the bot stopped, close the recorded position with the database's own exit method, giving the price in EUR per coin you actually received (`0.0` if nothing):
+
+```bash
+python -c "from trader.database import TradeDatabase; TradeDatabase().record_trade_exit('RVN-EUR', exit_price=0.0)"
+```
+
+This marks the market's oldest open trade in `TRADER_DB_PATH` (default `data/trades.db`) as closed and removes its position. The realized loss counts toward `MAX_DAILY_LOSS_PCT` and `MAX_DRAWDOWN_PCT` like any other trade.
+
 ### Monitor Mode
 
 When you use the `--monitor` flag, Bender runs a beautiful live terminal UI:
@@ -240,8 +248,8 @@ When you use the `--monitor` flag, Bender runs a beautiful live terminal UI:
 The text log keeps trades, rotations and errors at the default `INFO` level. The per-check
 details (indicator values, signal checks, ticker fetches) are logged at `DEBUG`; set
 `LOG_LEVEL=DEBUG` in `.env` to see them. Every evaluation is also written as one JSON line to
-`logs/decisions-YYYY-MM-DD.jsonl` (market, action, reason, price, candle time and indicator values),
-which is what the analysis tools below build on.
+`logs/decisions-YYYY-MM-DD.jsonl` (market, action, reason, price, candle time and indicator values).
+That decision log is there for analysing future runs; the analysis tools below read the text log.
 
 ```bash
 # Virtual trading with live monitor
@@ -261,13 +269,20 @@ trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 ### Analysing a run
 
 `tools/log_analysis/` turns a text log into data and tests what would have worked. All output
-goes to `data/analysis/` (not committed):
+goes to `data/analysis/` (not committed).
+
+The parser reads the per-check lines ("Buy check …", "Sell check …"), which are now logged at
+`DEBUG`. So the steps below work on text logs written before that change, such as the
+Aug–Oct 2026 run, or on logs written with `LOG_LEVEL=DEBUG`.
 
 ```bash
 # 1. Parse a log into SQLite (~1 minute per GB)
 python -m tools.log_analysis.parse logs/2026-08-13.log --db data/analysis/bender_2026-08-13.db
 
-# 2. Download Bitvavo 5-minute candles for the markets in the log (public data, no API key)
+# 2. Download Bitvavo 5-minute candles for the markets in the log (public data, no API key).
+#    markets.txt lists every market the log monitored or scored:
+sqlite3 data/analysis/bender_2026-08-13.db \
+    "SELECT market FROM checks UNION SELECT market FROM market_scores" > markets.txt
 python -m tools.log_analysis.candles --markets-file markets.txt \
     --start 2026-05-15 --end 2026-10-29 --db data/analysis/candles_5m.db
 

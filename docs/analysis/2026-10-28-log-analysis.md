@@ -112,10 +112,10 @@ rewarded markets that had been falling:
 
 ### 2.3 Buy and sell signals that overlap
 
-Signal 3 buys when the price is within 1% of the lower Bollinger band and
+During the run, signal 3 bought when the price was within 1% of the lower Bollinger band and
 `MACD > signal − 0.000001`. That margin is absolute, and for the sub-cent coins Bender trades (PEPE at
-€0.000004) MACD itself is smaller than 0.000001. So the "momentum" condition is almost always true,
-even when MACD is below its signal line, which is exactly the technical sell condition. Signal 3 also
+€0.000004) MACD itself is smaller than 0.000001. So the "momentum" condition was almost always true,
+even when MACD was below its signal line, which is exactly the technical sell condition. Signal 3 also
 ignores RSI. The bot could buy and then sell on the next cycle:
 
 - 45 trades closed within 10 minutes of opening, 42 of them signal-3 entries, mostly by the technical
@@ -221,12 +221,13 @@ is less than the fee of one round trip.
 | Candles are sorted oldest-first at the API boundary; the strategy and the market scorer both get them through `MarketOperations.get_historical_candles`, which also checks API errors | `market.py`, `enhanced_strategy.py` |
 | Delisted markets (Bitvavo code 219) raise `MarketDelistedError`. In virtual mode the position is closed at the last known price; in real mode it is left for manual handling and logged once. Price polling and trading stop, and the market is dropped from rotation once it holds no position | `bitvavo.py`, `exceptions.py`, `enhanced_strategy.py`, `multi_market_strategy.py` |
 | Missing or short candle history no longer crashes the cycle; open positions still get the stop-loss and take-profit check on the ticker | `enhanced_strategy.py` |
-| One JSON line per evaluation in `logs/decisions-YYYY-MM-DD.jsonl`: market, action (buy, sell, hold, monitor, blocked by position limit or risk, error), reason, ticker price, candle time, indicators | `enhanced_strategy.py`, `logger.py` |
+| One JSON line per evaluation in `logs/decisions-YYYY-MM-DD.jsonl`: market, action (buy, sell, hold, monitor, blocked by position limit or risk, no price, delisted, error), reason, ticker price, candle time, indicators | `enhanced_strategy.py`, `logger.py` |
 | Log files roll over daily; the per-check lines (signal checks, ticker fetches, cycle banners) moved to DEBUG, and `LOG_LEVEL=DEBUG` brings them back | `logger.py`, `enhanced_strategy.py`, `market.py`, `multi_market_strategy.py` |
+| Signal 3 requires MACD above its signal line (no absolute margin) | `enhanced_strategy.py` |
 | Analysis tools: log parser, candle downloader, replay simulator, report | `tools/log_analysis/` |
 
-The strategy rules themselves (thresholds, signal 3's margin, exits) are unchanged; section 7 says which
-changes the evidence supports.
+The other strategy rules (thresholds, exits) are unchanged; section 7 says which changes the evidence
+supports.
 
 ## 7. Recommendations
 
@@ -236,9 +237,9 @@ In order of priority:
    Aug–Sep rally, and real orders also pay the bid-ask spread, which virtual fills do not.
 2. **Merge the fixes on this branch.** Without them no result means anything. They also remove the error
    flood and the stuck-slot problem.
-3. **Make signal 3's MACD check strict** (`macd > macd_signal`, no margin). It is a one-line change that
-   stops the buy-then-sell churn. On the live schedule it cut the loss from −0.53% to −0.19% per trade.
-   Per market it is neutral to slightly better.
+3. **Make signal 3's MACD check strict** (`macd > macd_signal`, no margin). Done on this branch
+   (section 6). The one-line change stops the buy-then-sell churn. On the live schedule it cut the loss
+   from −0.53% to −0.19% per trade. Per market it is neutral to slightly better.
 4. **Run a new virtual period with the fixes**, to check the replay against reality, not to make
    money. Expect a loss similar to section 3. With `decisions-*.jsonl` the comparison is a query. Once
    the replay is calibrated, new ideas can be tested in hours instead of months of paper trading.
@@ -262,7 +263,7 @@ tested and did not help.
 
 - **Data:** the log was parsed into SQLite with `tools.log_analysis.parse`. Every line is counted as
   parsed or as an explicitly ignored category, and none were unrecognised. Bitvavo's public 5-minute
-  candles for the 256 markets the bot scored or monitored come from `tools.log_analysis.candles`
+  candles for 256 of the 265 markets the bot scored or monitored come from `tools.log_analysis.candles`
   (15 May – 29 Oct for the 145 monitored markets). RVN-EUR, ICX-EUR and VANRY-EUR have no candle data
   and are excluded from the replays.
 - **Log timestamps are UTC.** This was checked by matching logged indicator values against candles.
@@ -281,6 +282,9 @@ tested and did not help.
 - **Costs:** virtual fills use the last trade price. Real orders would also pay the bid-ask spread, which
   is up to 0.5% for these coins (the scorer's limit), so real results would be worse than every number
   here.
+- **Period boundaries:** in sections 4 and 5 each period includes its whole end date, so neighbouring
+  periods share one day: "before" also includes 13 Aug and live A also includes 1 Oct. The numbers above
+  use these bounds.
 - **One period:** 76 days of one market regime. The rule study tests on the 90 days before the run and on
   both halves of the run, but that is still a small sample of market conditions.
 
