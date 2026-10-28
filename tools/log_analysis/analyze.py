@@ -119,6 +119,23 @@ def _candles(db_path, market):
     return _stores[db_path].load(market)
 
 
+def _period_windows(db_path, market, interval) -> list | None:
+    """(period, snapshots) for each of PERIODS with at least a day of data; None if the market has too little history.
+
+    The per-market studies (sections 4 and 7) replay these windows.
+    """
+    candles = _candles(db_path, market)
+    if len(candles) < min_history(interval):
+        return None
+    snaps = full_series_snapshots(candles)
+    windows = []
+    for period, (start, end) in PERIODS.items():
+        window = snaps.loc[start:end]
+        if len(window) >= bars_for(pd.Timedelta(days=1), interval):  # skip periods with less than a day of data
+            windows.append((period, window))
+    return windows
+
+
 def schedule_from_checks(conn) -> pd.DataFrame:
     """(t, market) pairs: the 5-minute buckets each market was evaluated in, in log order."""
     checks = pd.read_sql('SELECT id, ts, market FROM checks', conn, parse_dates=['ts'])
@@ -297,15 +314,8 @@ def live_replays(conn, candles_db) -> tuple:
 
 def _study_market(args):
     db_path, market, interval = args
-    candles = _candles(db_path, market)
-    if len(candles) < min_history(interval):
-        return []
-    snaps = full_series_snapshots(candles)
     out = []
-    for period, (start, end) in PERIODS.items():
-        window = snaps.loc[start:end]
-        if len(window) < bars_for(pd.Timedelta(days=1), interval):  # less than a day of data
-            continue
+    for period, window in _period_windows(db_path, market, interval) or []:
         hold_return = (window.price.iloc[-1] / window.price.iloc[0] - 1) * 100
         for name, rules in VARIANTS.items():
             trades = replay({market: window}, rules, max_positions=None)
@@ -439,6 +449,7 @@ def market_selection(conn, candles_db) -> tuple:
 COSTS = Costs()  # Bitvavo base tier on EUR markets: 0.25% taker, 0.15% maker
 COST_INTERVALS = ('5m', '1h')
 ORDER_TYPES = ('market', 'limit')
+NO_SPREAD = 'market, no spread'  # market orders charged no spread: only for the tercile check, not a grid row
 LIMIT_TIMEOUT_BARS = 3
 COST_RULES = {
     'current rules': Rules(),
@@ -464,22 +475,20 @@ def order_rules(rules: Rules, orders: str, interval: str) -> Rules:
 
 def _cost_market(args):
     db_path, market, interval, half_spread = args
-    candles = _candles(db_path, market)
-    if len(candles) < min_history(interval):
+    windows = _period_windows(db_path, market, interval)
+    if windows is None:
         return market, interval, None
-    snaps = full_series_snapshots(candles)
+    runs = [(orders, name, order_rules(rules, orders, interval), half_spread) for orders in ORDER_TYPES for name, rules in COST_RULES.items()]
+    if interval == '5m':  # the tercile rows once more without the spread charge
+        runs.append((NO_SPREAD, 'current rules', COST_RULES['current rules'], 0.0))
     frames = []
-    for period, (start, end) in PERIODS.items():
-        window = snaps.loc[start:end]
-        if len(window) < bars_for(pd.Timedelta(days=1), interval):  # less than a day of data
-            continue
-        for orders in ORDER_TYPES:
-            for name, rules in COST_RULES.items():
-                trades = replay({market: window}, order_rules(rules, orders, interval), max_positions=None,
-                                costs=COSTS, spreads={market: half_spread})
-                if not trades.empty:
-                    trades['interval'], trades['orders'], trades['rules'], trades['period'] = interval, orders, name, period
-                    frames.append(trades)
+    for period, window in windows:
+        for orders, name, rules, spread in runs:
+            trades = replay({market: window}, rules, max_positions=None, costs=COSTS, spreads={market: spread})
+            if not trades.empty:
+                trades['interval'], trades['orders'], trades['rules'], trades['period'] = interval, orders, name, period
+                trades['half_spread'] = spread
+                frames.append(trades)
     return market, interval, frames
 
 
@@ -487,7 +496,8 @@ def cost_experiments(markets, candles_5m, candles_1h, spreads) -> tuple:
     """Section 7: the rule sets of COST_RULES with market and limit orders on 5m and 1h candles, judged by passes_gate.
 
     Per market and independent, like section 4. spreads: market -> median logged half-spread (median_spreads);
-    a market without one gets the median of all markets' values.
+    a market without one gets the median of all markets' values. The spread terciles (current rules, market
+    orders, 5m) also report the round-trip spread they were charged and their result with no spread charged.
     """
     fallback = float(np.median(list(spreads.values())))
     half = {m: spreads.get(m, fallback) for m in markets}
@@ -511,15 +521,29 @@ def cost_experiments(markets, candles_5m, candles_1h, spreads) -> tuple:
     ranked = sorted(covered['5m'], key=lambda m: (half[m], m))
     groups = [ranked[len(ranked) * i // 3:len(ranked) * (i + 1) // 3] for i in range(3)]
     base = trades[(trades.interval == '5m') & (trades.orders == 'market') & (trades.rules == 'current rules')]
+    no_spread = trades[trades.orders == NO_SPREAD]
+
+    def spread_charged(sel):
+        # trade-weighted round-trip spread (%) of the closed trades: a market order pays half the spread on each side
+        closed = sel.dropna(subset=['pl_eur'])
+        return {p: closed[closed.period == p].half_spread.mean() * 200 for p in PERIODS}
+
     terciles = [dict(tercile=label, markets=group, spread_min_pct=half[group[0]] * 200, spread_max_pct=half[group[-1]] * 200,
-                     periods=by_period(base[base.market.isin(group)]))
+                     periods=by_period(base[base.market.isin(group)]), round_trip_spread_pct=spread_charged(base[base.market.isin(group)]),
+                     periods_no_spread=by_period(no_spread[no_spread.market.isin(group)]))
                 for label, group in zip(('lowest', 'middle', 'highest'), groups, strict=True)]
-    low_beats_high = all(terciles[0]['periods'][p]['avg_pl_pct'] > terciles[2]['periods'][p]['avg_pl_pct'] for p in PERIODS)
+
+    def lowest_beats_highest(key):
+        return all(terciles[0][key][p]['avg_pl_pct'] > terciles[2][key][p]['avg_pl_pct'] for p in PERIODS)
+    low_beats_high, low_beats_high_no_spread = lowest_beats_highest('periods'), lowest_beats_highest('periods_no_spread')
 
     missing = sorted(set(markets) - set(spreads))
+    logged = pd.Series([half[m] * 200 for m in covered['5m']], dtype=float)
     result = dict(margin_pp=CALIBRATION_MARGIN_PP, min_trades=GATE_MIN_TRADES, markets={i: len(m) for i, m in covered.items()},
-                  spread_fallback=dict(markets=missing, half_spread=fallback), configs=configs, terciles=terciles,
-                  lowest_tercile_beats_highest=low_beats_high)
+                  spread_fallback=dict(markets=missing, half_spread=fallback, scored_markets=len(spreads)),
+                  spread_pct=dict(markets=len(logged), median=float(logged.median()), min=float(logged.min()), max=float(logged.max())),
+                  configs=configs, terciles=terciles, lowest_tercile_beats_highest=low_beats_high,
+                  lowest_tercile_beats_highest_no_spread=low_beats_high_no_spread)
 
     short = {p: p.split(' (')[0] for p in PERIODS}
 
@@ -530,6 +554,10 @@ def cost_experiments(markets, candles_5m, candles_1h, spreads) -> tuple:
     by_spread = pd.DataFrame([dict(tercile=t['tercile'], markets=len(t['markets']),
                                    **{'spread %': f"{t['spread_min_pct']:.2f}-{t['spread_max_pct']:.2f}"}, **row(t['periods']))
                               for t in terciles])
+    charge = pd.DataFrame([dict(tercile=t['tercile'], **{p: t['periods_no_spread'][p]['avg_pl_pct'] for p in PERIODS},
+                                **{f"spread charged {short[p]}": f"{t['round_trip_spread_pct'][p]:.2f}" for p in PERIODS})
+                           for t in terciles])
+    spread = result['spread_pct']
     md = ['## 7. Can lower costs close the gap? (cost experiments)', '',
           f"Each configuration runs independently on each market (one position per market, correctly ordered candles), "
           f"on {result['markets']['5m']} markets with 5-minute and {result['markets']['1h']} with hourly candles. Fees are "
@@ -540,11 +568,20 @@ def cost_experiments(markets, candles_5m, candles_1h, spreads) -> tuple:
           f"Gate: average net P/L per trade of at least {CALIBRATION_MARGIN_PP}% in every period, with at least "
           f"{GATE_MIN_TRADES} trades in each.", '',
           '### Average net P/L per trade (%), trades, and the gate', '', *md_table(grid, '{:+.2f}'),
-          f"- Markets without a logged spread (given the median, {fallback * 200:.2f}%): {', '.join(missing) or 'none'}.", '',
+          f"- Median logged spread over the {spread['markets']} markets with 5-minute candles: {spread['median']:.2f}% "
+          f"(range {spread['min']:.3f}-{spread['max']:.3f}%).",
+          f"- Markets without a logged spread (given the median of all {len(spreads)} scored markets, {fallback * 200:.2f}%): "
+          f"{', '.join(missing) or 'none'}.", '',
           '### Current rules, market orders, 5m, by spread tercile', '',
           'Markets ranked by their median logged spread (the full bid-ask spread, as the scorer logs it) and split into '
           'three groups of equal size.', '', *md_table(by_spread, '{:+.2f}'),
-          f"- The lowest tercile does better than the highest in every period: {'yes' if low_beats_high else 'no'}.", '']
+          f"- The lowest tercile does better than the highest in every period: {'yes' if low_beats_high else 'no'}.", '',
+          '### The same terciles without the spread charge', '',
+          'Average net P/L per trade (%) of the same replay with the spread set to zero, and the round-trip spread (%) the '
+          'table above charged per closed trade, trade-weighted (a market order pays half the spread on each side).', '',
+          *md_table(charge, '{:+.2f}'),
+          f"- Without the spread charge, the lowest tercile does better than the highest in every period: "
+          f"{'yes' if low_beats_high_no_spread else 'no'}.", '']
     return md, result
 
 

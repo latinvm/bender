@@ -66,7 +66,8 @@ def test_cost_experiments_grid_spread_fallback_and_terciles(tmp_path):
 
     md, result = cost_experiments(['A-EUR', 'B-EUR', 'C-EUR'], c5m, c1h, spreads)
 
-    assert result['spread_fallback'] == {'markets': ['B-EUR'], 'half_spread': pytest.approx(0.001)}
+    assert result['spread_fallback'] == {'markets': ['B-EUR'], 'half_spread': pytest.approx(0.001), 'scored_markets': 3}
+    assert result['spread_pct'] == {'markets': 3, 'median': pytest.approx(0.2), 'min': pytest.approx(0.1), 'max': pytest.approx(1.0)}
     assert len(result['configs']) == 12
     assert {(c['interval'], c['orders']) for c in result['configs']} == {('5m', 'market'), ('5m', 'limit'), ('1h', 'market'), ('1h', 'limit')}
     for config in result['configs']:
@@ -77,6 +78,28 @@ def test_cost_experiments_grid_spread_fallback_and_terciles(tmp_path):
     assert all(lowest[p]['avg_pl_pct'] > highest[p]['avg_pl_pct'] for p in PERIODS)
     assert result['lowest_tercile_beats_highest'] is True
     assert any('passes gate' in line for line in md)
+
+
+def test_cost_experiments_terciles_without_the_spread_charge(tmp_path):
+    c5m, c1h = str(tmp_path / 'c5m.db'), str(tmp_path / 'c1h.db')
+    five_min = [c for seed, day in enumerate(('2026-06-01', '2026-09-01', '2026-10-10'))
+                for c in random_walk(day, pd.Timestamp(day) + pd.Timedelta(days=3), '5min', seed)]
+    for market in ('A-EUR', 'B-EUR', 'C-EUR'):  # identical prices, different spreads
+        CandleStore(c5m).save(market, five_min)
+        CandleStore(c1h).save(market, hourly_random_walk('2026-05-01', '2026-10-29'))
+
+    md, result = cost_experiments(['A-EUR', 'B-EUR', 'C-EUR'], c5m, c1h, {'A-EUR': 0.0005, 'B-EUR': 0.001, 'C-EUR': 0.005})
+
+    lowest = result['terciles'][0]
+    for tercile, full_spread in zip(result['terciles'], (0.1, 0.2, 1.0), strict=True):
+        # the trade-weighted round-trip spread charged with market orders: the full spread
+        assert tercile['round_trip_spread_pct'] == {p: pytest.approx(full_spread) for p in PERIODS}
+        # identical prices: without the spread charge every tercile trades the same
+        assert tercile['periods_no_spread'] == lowest['periods_no_spread']
+    assert all(lowest['periods_no_spread'][p]['trades'] > 0 for p in PERIODS)
+    assert result['lowest_tercile_beats_highest'] is True
+    assert result['lowest_tercile_beats_highest_no_spread'] is False
+    assert any('without the spread charge' in line.lower() for line in md)
 
 
 @pytest.mark.parametrize('extra, message', [([], 'section 7 needs --candles-1h'),

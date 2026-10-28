@@ -23,9 +23,10 @@ ran. The result decides which Phase 4 tasks of that plan go ahead.
   three, and better in October for one.
 - **Tight-spread markets lose less, but only by paying less spread.** The tercile of markets with the
   lowest spreads did better than the tercile with the highest spreads in every period, which meets
-  Task 14's gate. With the spread charge removed, the high-spread markets did as well or better in
-  every period, so the whole gap is the spread itself. The low-spread markets still lost 0.89% and
-  0.92% per trade in two of the three periods.
+  Task 14's gate. With the spread charge removed, the high-spread markets did better than the
+  low-spread ones in two periods and about the same in October, so the gap comes from the spread
+  itself (section 3). The low-spread markets still lost 0.89% and 0.92% per trade in two of the
+  three periods.
 
 What this means for the project: the cost reductions tested here do not close the gap between the
 signals' edge and the costs. The plan's go/no-go for real money requires a configuration that passes
@@ -67,9 +68,9 @@ rules, which differ only in signal 3's MACD check.
 - **Fees:** Bitvavo's base tier on EUR markets, 0.25% for market (taker) orders and 0.15% for limit
   (maker) orders (bitvavo.com/en/fees, checked 28 Oct 2026).
 - **Spread:** each market's median bid-ask spread as the market scorer logged it from the order book
-  during the run. Over the 145 monitored markets the median is 0.21%, and the range is 0.04–2.47%.
-  All 145 have a logged spread, so none needed the fallback (the median over all 265 scored markets,
-  0.24%).
+  during the run. Over the 142 markets in the replay the median is 0.21%, and the range is
+  0.042–2.470%. Every monitored market has a logged spread, so none needed the fallback (the median
+  over all 265 scored markets, 0.24%).
 - **Market orders** buy at the candle close plus half the spread and sell at the close minus half the
   spread. Both sides pay the taker fee.
 - **Limit orders:**
@@ -136,19 +137,21 @@ logs it.
 
 - **The lowest tercile did better than the highest in every period**, by 0.18, 0.16 and 0.55 points.
   That is Task 14's gate.
-- **The gap is the spread charge itself.** The replay charges each market its own spread: on average
-  0.11–0.12% per round trip in the lowest tercile and 0.55–0.58% in the highest. As a check outside the
-  committed report, the same tercile rows were rerun with the spread set to zero and everything else
-  unchanged:
+- **The gap is the spread charge itself.** The replay charges each market its own spread. Section 7
+  also reruns the same tercile rows with the spread set to zero and everything else unchanged. It
+  reports the round-trip spread charged in the table above, as a trade-weighted average over closed
+  trades (a market order pays half the spread on each side):
 
-  | Tercile | Before | Live A | Live B |
-  |---|---|---|---|
-  | Lowest | −0.78% | +0.28% | −0.82% |
-  | Highest | −0.47% | +0.65% | −0.83% |
+  | Tercile | Before, no spread | Live A, no spread | Live B, no spread | Spread charged (before / A / B) |
+  |---|---|---|---|---|
+  | Lowest | −0.78% | +0.28% | −0.82% | 0.12 / 0.11 / 0.11% |
+  | Middle | −0.79% | +0.44% | −0.94% | 0.21 / 0.21 / 0.21% |
+  | Highest | −0.47% | +0.65% | −0.83% | 0.56 / 0.55 / 0.58% |
 
-  Without the spread charge, the high-spread markets did better in two periods and the same in
-  October. The signals do not work better in tight-spread markets. Trading them only avoids paying
-  their spread, and that saving holds only if the logged spreads are what real orders pay.
+  Without the spread charge, the high-spread markets did better than the low-spread ones in two
+  periods and about the same in October (−0.83% against −0.82%). The signals do not work better in
+  tight-spread markets. Trading them only avoids paying their spread, and that saving holds only if
+  the logged spreads are what real orders pay.
 - **Low spreads alone do not make money.** The lowest tercile still lost 0.89% and 0.92% per trade in
   two of the three periods.
 - The middle tercile is not between the other two in live A (+0.25%, the best of the three).
@@ -204,6 +207,7 @@ venv/bin/python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026
     --out data/analysis --sections 7
 ```
 
-The inputs come from the commands under "Analysing a run" in the README. The hourly candles come from
-`tools.log_analysis.candles` with `--interval 1h --start 2026-05-01 --end 2026-10-29 --db
-data/analysis/candles_1h.db`.
+It writes the tables of sections 2 and 3 and the spread figures in section 1 to `report.md` and
+`results.json` in `data/analysis/` (not committed). The inputs come from the commands under "Analysing
+a run" in the README. The hourly candles come from `tools.log_analysis.candles` with `--interval 1h
+--start 2026-05-01 --end 2026-10-29 --db data/analysis/candles_1h.db`.
