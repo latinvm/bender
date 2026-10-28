@@ -230,7 +230,7 @@ trader trade --test-trade
 - A read-only connectivity check verifies your API credentials without placing any orders. Pass `--test-trade` if you explicitly want a real minimum-size buy+sell verification cycle instead.
 - Recorded positions are reconciled against your actual exchange balances. If the database references assets you no longer hold, Bender refuses to trade until you clean up the database or pass `--force`.
 
-**If a market you hold is delisted (real mode):** Bender stops trading that market, logs the delisting once and leaves the position alone: it cannot be sold through the API, and Bender never changes a real position automatically. The position stays in the database, so it keeps counting toward `MAX_POSITIONS`, and once the coins have left your account the startup reconciliation refuses to trade. Handle the coins on Bitvavo, then, with the bot stopped, close the recorded position with the database's own exit method, giving the price in EUR per coin you actually received (`0.0` if nothing):
+**If a market you hold is delisted (real mode):** Bender stops trading that market, logs the delisting once and leaves the position alone: it cannot be sold through the API, and Bender never closes a real position it could not sell. The position stays in the database, so it keeps counting toward `MAX_POSITIONS`, and once the coins have left your account the startup reconciliation refuses to trade. Handle the coins on Bitvavo, then, with the bot stopped, close the recorded position with the database's own exit method, giving the price in EUR per coin you actually received (`0.0` if nothing):
 
 ```bash
 python -c "from trader.database import TradeDatabase; TradeDatabase().record_trade_exit('RVN-EUR', exit_price=0.0)"
@@ -305,11 +305,13 @@ python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db
 
 To check the replay against a run of the fixed bot, `calibrate` compares the replay with the JSON
 decision logs and the virtual wallet. It needs no `DEBUG` lines, fetches the 5-minute candles that
-cover the decisions, and writes `calibration.md` and `calibration.json`:
+cover the decisions, and writes `calibration.md` and `calibration.json`. Give it its own candle file:
+it adds the new run's candles to the file it is given, and `candles_5m.db` has to stay as it is for
+the published analysis to reproduce.
 
 ```bash
 python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db \
-    --candles data/analysis/candles_5m.db --out data/analysis/calibration
+    --candles data/analysis/candles_calibration.db --out data/analysis/calibration
 ```
 
 The findings from the 13 Aug - 28 Oct 2026 virtual run are in

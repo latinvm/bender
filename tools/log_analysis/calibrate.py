@@ -7,9 +7,12 @@ measures how far the replay is from what the bot did: do recomputed indicators
 and buy decisions match the log, and does the replay exit the real trades the
 same way. Writes calibration.json and calibration.md to --out.
 
+Use a candle store of its own: the fetched candles are added to it, which
+would change the published log analysis if it were candles_5m.db.
+
     venv/bin/python -m tools.log_analysis.calibrate \\
         --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db \\
-        --candles data/analysis/candles_5m.db --out data/analysis/calibration
+        --candles data/analysis/candles_calibration.db --out data/analysis/calibration
 """
 
 import argparse

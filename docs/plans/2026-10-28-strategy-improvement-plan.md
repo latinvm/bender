@@ -391,7 +391,7 @@ The spec, §2.3, §3 and recommendation 3: the absolute 0.000001 margin makes "m
     - It samples decisions with `rsi` present and `entry_price` null (flat, so a buy was possible).
     - It recomputes each with `window_snapshot(candles_for(market), candle_ts)`.
     - It returns `compared, indicator_match_pct` (RSI within 1 and close within 0.2%), and `buy_agreement_pct`. Here logged buy = action in `{'buy', 'blocked_position_limit', 'blocked_risk', 'no_price'}`, compared with `buy_reason(snap, rules) is not None`.
-  - CLI: `python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db --candles data/analysis/candles_5m.db --out data/analysis/calibration [--utc-offset 0]`.
+  - CLI: `python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db --candles data/analysis/candles_calibration.db --out data/analysis/calibration [--utc-offset 0]`.
     - It fetches candles for any market missing from the store, from the first decision minus 2 days to the last plus 1 day.
     - It writes `calibration.json` and `calibration.md`.
 
@@ -433,7 +433,7 @@ The spec, §2.3, §3 and recommendation 3: the absolute 0.000001 margin makes "m
 
 - [ ] **Step 1:** After the PR is merged, run the fixed bot with a clean wallet: `trader virtual --monitor --reset`, with default settings.
 - [ ] **Step 2:** Let it run for at least 14 days and 100 closed trades; extend until both are met.
-- [ ] **Step 3:** Run `venv/bin/python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db --candles data/analysis/candles_5m.db --out data/analysis/calibration`.
+- [ ] **Step 3:** Run `venv/bin/python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db --candles data/analysis/candles_calibration.db --out data/analysis/calibration`.
 - [ ] **Step 4: Gate.** Both `indicator_match_pct` and `buy_agreement_pct` must be ≥ 95. If either is lower, stop: the replay does not describe the bot, so investigate before any Phase 3 decision.
 - [ ] **Step 5:** Set `CALIBRATION_MARGIN_PP` in `tools/log_analysis/analyze.py` (Task 12) to `max(0.4, optimism_pp)`.
 - [ ] **Step 6:** Write the numbers to `docs/analysis/YYYY-MM-DD-calibration.md`, then commit.

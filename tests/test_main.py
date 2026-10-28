@@ -287,7 +287,7 @@ def test_find_best_markets_volume_spike_penalty(mock_market_ops, caplog):
 @patch('trader.main.TradeDatabase')
 @patch('trader.main.BitvavoClient')
 @patch('trader.main.MarketOperations')
-@patch('trader.main.EnhancedStrategy')
+@patch('trader.main.MultiMarketStrategy')
 @patch('trader.main.display_market_info')
 @patch('trader.main.find_best_markets')
 @patch('trader.main.scan_all_markets_for_top_50')
@@ -327,7 +327,7 @@ def test_main_test_trade_fails(
 @patch('trader.main.TradeDatabase')
 @patch('trader.main.BitvavoClient')
 @patch('trader.main.MarketOperations')
-@patch('trader.main.EnhancedStrategy')
+@patch('trader.main.MultiMarketStrategy')
 @patch('trader.main.display_market_info')
 @patch('trader.main.find_best_markets')
 @patch('trader.main.scan_all_markets_for_top_50')
@@ -440,4 +440,22 @@ def test_test_trade_without_a_selected_market_runs_the_read_only_check(real_star
     real_startup.ops.test_trade.assert_not_called()
     real_startup.ops.place_market_order.assert_not_called()
     real_startup.ops.connectivity_check.assert_called_once()
+    real_startup.multi.return_value.run.assert_called_once()
+
+
+def test_virtual_startup_with_no_market_and_no_position_skips_the_test_trade(real_startup, monkeypatch, caplog):
+    monkeypatch.setattr('sys.argv', ['main.py', 'virtual'])
+    wallet = Mock()
+    wallet.get_active_positions.return_value = []
+    wallet.get_balance.return_value = wallet.get_initial_balance.return_value = 1000.0
+    monkeypatch.setattr('trader.main.VirtualWallet', Mock(return_value=wallet))
+    ops = Mock()
+    monkeypatch.setattr('trader.main.VirtualMarketOperations', Mock(return_value=ops))
+    real_startup.find.return_value = []
+
+    with caplog.at_level(logging.INFO):
+        main()
+
+    ops.test_trade.assert_not_called()
+    assert 'skipping the virtual test trade' in caplog.text
     real_startup.multi.return_value.run.assert_called_once()
