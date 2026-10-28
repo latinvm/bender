@@ -116,21 +116,31 @@ class MultiMarketStrategy:
         else:
             logger.info("Market rotation: selection unchanged")
 
+    def _drop_if_delisted(self, market: str) -> None:
+        # A delisted market with a real position stays (its strategy is
+        # inert) so the position remains visible until handled manually
+        strategy = self.strategies[market]
+        if strategy.delisted and market not in strategy.positions:
+            logger.info(f"Dropping delisted market {market}")
+            self.markets.remove(market)
+            del self.strategies[market]
+
     def execute_all_trades(self):
         """Execute trading logic for all markets"""
         self._apply_pending_markets()
-        logger.info(f"\n{'='*80}")
-        logger.info(f"Checking {len(self.markets)} markets...")
-        logger.info(f"{'='*80}")
+        logger.debug(f"\n{'='*80}")
+        logger.debug(f"Checking {len(self.markets)} markets...")
+        logger.debug(f"{'='*80}")
 
-        for market in self.markets:
+        for market in list(self.markets):
             try:
-                logger.info(f"\n--- {market} ---")
+                logger.debug(f"\n--- {market} ---")
                 self.strategies[market].execute_trade()
             except Exception as e:
                 logger.error(f"Error executing trade for {market}: {str(e)}")
+            self._drop_if_delisted(market)
 
-        logger.info(f"\n{'='*80}\n")
+        logger.debug(f"\n{'='*80}\n")
 
     def get_current_prices(self, use_cache: bool = True, cache_max_age: float = 30.0) -> Dict[str, float]:
         """Get current prices for all markets
@@ -183,9 +193,9 @@ class MultiMarketStrategy:
 
                 # Show summary
                 summary = self.get_portfolio_summary()
-                logger.info(f"Portfolio Summary: {summary['active_positions']}/{summary['total_markets']} markets active")
+                logger.debug(f"Portfolio Summary: {summary['active_positions']}/{summary['total_markets']} markets active")
                 if summary['active_markets']:
-                    logger.info(f"Active markets: {', '.join(summary['active_markets'])}")
+                    logger.debug(f"Active markets: {', '.join(summary['active_markets'])}")
 
                 stop.wait(interval)
 

@@ -13,7 +13,7 @@ def mock_market_ops():
     mock.client.bitvavo = Mock()
 
     # Mock candles data for technical indicators
-    mock.client.bitvavo.candles.return_value = [
+    mock.get_historical_candles.return_value = [
         [1640000000000, '100.0', '110.0', '95.0', '105.0', '1000.0']
         for _ in range(100)
     ]
@@ -466,20 +466,18 @@ class TestExecuteTrade:
             'status': 'filled'
         }
 
-        # Create mock dataframe with buy signal
+        # Steady decline: RSI is oversold, a buy signal (a flat series has
+        # an undefined RSI and is rightly skipped as insufficient data)
         with patch.object(strategy, 'get_historical_data') as mock_get_data:
+            closes = [110.0 - i * 0.1 for i in range(100)]
             df = pd.DataFrame({
-                'close': [100.0] * 100,
-                'high': [105.0] * 100,
-                'low': [95.0] * 100,
-                'open': [100.0] * 100,
+                'close': closes,
+                'high': [c + 1 for c in closes],
+                'low': [c - 1 for c in closes],
+                'open': closes,
                 'volume': [1000.0] * 100
             })
             df.index = pd.date_range(start='2024-01-01', periods=100, freq='5min')
-            df = strategy.calculate_indicators(df)
-
-            # Set buy signal
-            df.loc[df.index[-1], 'RSI_14'] = 35.0
 
             mock_get_data.return_value = df
 
@@ -601,8 +599,8 @@ class TestGetHistoricalData:
         assert isinstance(df, pd.DataFrame)
         assert len(df) > 0
         assert list(df.columns) == ['open', 'high', 'low', 'close', 'volume']
-        strategy.market_ops.client.bitvavo.candles.assert_called_with(
-            'TEST-EUR', '5m', {'limit': 100}
+        strategy.market_ops.get_historical_candles.assert_called_with(
+            'TEST-EUR', interval='5m', limit=100
         )
 
     def test_get_historical_data_custom_params(self, strategy):
@@ -610,6 +608,6 @@ class TestGetHistoricalData:
         df = strategy.get_historical_data(interval='1h', limit=200)
 
         assert isinstance(df, pd.DataFrame)
-        strategy.market_ops.client.bitvavo.candles.assert_called_with(
-            'TEST-EUR', '1h', {'limit': 200}
+        strategy.market_ops.get_historical_candles.assert_called_with(
+            'TEST-EUR', interval='1h', limit=200
         )

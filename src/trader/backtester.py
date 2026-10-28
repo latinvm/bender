@@ -5,12 +5,12 @@ import tempfile
 import numpy as np
 import pandas as pd
 
+from trader.enhanced_strategy import REQUIRED_INDICATORS
 from trader.market import MarketOperations
 from trader.virtual_wallet import VirtualWallet
 
 logger = logging.getLogger('trader.backtester')
 
-REQUIRED_INDICATORS = ['RSI_14', 'MACD_12_26_9', 'MACDs_12_26_9', 'BBL_20_2.0_2.0', 'BBU_20_2.0_2.0']
 MIN_PERIODS = 26  # MACD needs 26 periods before indicators are meaningful
 
 

@@ -141,7 +141,7 @@ class MarketOperations:
             ticker = check_bitvavo_response(self.client.bitvavo.tickerPrice({'market': market}), f'ticker {market}')
             if not isinstance(ticker, dict) or 'price' not in ticker:
                 raise APIConnectionError(f"Ticker response for {market} has no price: {ticker}")
-            logger.info(f"Fetching ticker for {market}: €{float(ticker['price']):.6f}")
+            logger.debug(f"Fetching ticker for {market}: €{float(ticker['price']):.6f}")
             logger.debug(f"Retrieved ticker: {ticker}")
             return ticker
         except BitvavoError:
@@ -574,11 +574,16 @@ class MarketOperations:
             raise
 
     def get_historical_candles(self, market: str, interval: str = '1h', limit: int = 1000) -> List:
-        """Get historical candles for a market."""
-        logger.info(f"Fetching historical candles for {market}")
+        """Get historical candles for a market, oldest first.
+
+        Bitvavo returns candles newest-first. Every consumer (indicators,
+        df.iloc[-1] as the current candle, return series for scoring) needs
+        oldest-first, so the order is fixed here, once, at the API boundary.
+        """
+        logger.debug(f"Fetching historical candles for {market}")
         try:
             candles = check_bitvavo_response(self.client.bitvavo.candles(market, interval, {'limit': limit}), f'candles {market}')
-            return candles
+            return sorted(candles, key=lambda candle: candle[0])
         except BitvavoError:
             raise
         except Exception as e:

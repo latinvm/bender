@@ -21,3 +21,7 @@ class AuthenticationError(BitvavoError):
 class RateLimitError(BitvavoError):
     """Raised when the API rate limit is exceeded"""
     pass
+
+class MarketDelistedError(MarketNotFoundError):
+    """Raised when a market has been delisted (Bitvavo error code 219)"""
+    pass

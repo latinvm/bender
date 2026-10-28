@@ -13,7 +13,7 @@ def mock_market_ops():
     mock.client.bitvavo = Mock()
 
     # Mock candles data
-    mock.client.bitvavo.candles.return_value = [
+    mock.get_historical_candles.return_value = [
         [1640000000000, '100.0', '110.0', '95.0', '105.0', '1000.0']
         for _ in range(100)
     ]

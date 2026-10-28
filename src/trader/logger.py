@@ -1,6 +1,7 @@
 import logging
+import os
 import sys
-from datetime import datetime
+import time
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -103,6 +104,46 @@ class TUIActivityHandler(logging.Handler):
         else:
             return f"{msg}"
 
+class DailyFileHandler(logging.FileHandler):
+    """File handler writing to <directory>/<prefix>YYYY-MM-DD<suffix>.
+
+    Switches to a new file when a record's (local) date differs from the
+    current file's, so a long-running bot gets one file per day instead of
+    one ever-growing file named after its start date.
+    """
+
+    def __init__(self, directory, prefix: str = '', suffix: str = '.log', clock: Callable[[], float] = time.time):
+        self.directory = Path(directory)
+        self.prefix = prefix
+        self.suffix = suffix
+        self._day = self._day_of(clock())
+        super().__init__(self._path_for(self._day), delay=True)
+
+    @staticmethod
+    def _day_of(timestamp: float) -> str:
+        return time.strftime('%Y-%m-%d', time.localtime(timestamp))
+
+    def _path_for(self, day: str) -> Path:
+        return self.directory / f"{self.prefix}{day}{self.suffix}"
+
+    def emit(self, record):
+        # Handler.handle() holds the handler lock, so swapping streams is safe
+        day = self._day_of(record.created)
+        if day != self._day:
+            self._day = day
+            if self.stream:
+                self.stream.close()
+                self.stream = None
+            self.baseFilename = os.path.abspath(self._path_for(day))
+        super().emit(record)
+
+
+def log_level_from_env() -> int:
+    """Log level from LOG_LEVEL (DEBUG restores the per-check chatter); INFO by default."""
+    level = logging.getLevelName(os.getenv('LOG_LEVEL', 'INFO').upper())
+    return level if isinstance(level, int) else logging.INFO
+
+
 def setup_logger(name: str = 'trader', console_output: bool = True) -> logging.Logger:
     """Setup basic logging configuration
 
@@ -115,16 +156,25 @@ def setup_logger(name: str = 'trader', console_output: bool = True) -> logging.L
 
     # Only add handlers if they haven't been added yet
     if not logger.handlers:
-        logger.setLevel(logging.INFO)
+        logger.setLevel(log_level_from_env())
 
         # Create formatters
         fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-        # File handler - daily log file
-        daily_file = log_dir / f"{datetime.now().strftime('%Y-%m-%d')}.log"
-        fh = logging.FileHandler(daily_file)
+        # File handler - one file per day (logs/YYYY-MM-DD.log)
+        fh = DailyFileHandler(log_dir)
         fh.setFormatter(fmt)
         logger.addHandler(fh)
+
+        # Decision records: one JSON object per line, one file per day
+        # (logs/decisions-YYYY-MM-DD.jsonl). Kept out of the text log and the
+        # TUI, and independent of LOG_LEVEL.
+        decisions = logging.getLogger(f'{name}.decisions')
+        decisions.setLevel(logging.INFO)
+        decisions.propagate = False
+        dh = DailyFileHandler(log_dir, prefix='decisions-', suffix='.jsonl')
+        dh.setFormatter(logging.Formatter('%(message)s'))
+        decisions.addHandler(dh)
 
         # Console handler (optional)
         if console_output:
