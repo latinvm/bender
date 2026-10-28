@@ -196,6 +196,7 @@ def test_buy_signal_on_a_market_delisted_mid_cycle_places_no_order():
     ops.get_historical_candles.side_effect = None
     ops.get_historical_candles.return_value = candles(FALLING)          # RSI 0: buy signal
     strategy = EnhancedStrategy(ops, 'NEW-EUR', virtual_wallet=Mock(get_active_positions=Mock(return_value=[])))
+    strategy.last_price = 1.0   # a stale price exists, so only the delisting guard can stop the order
     strategy.execute_trade()
     ops.place_market_order.assert_not_called()
 
