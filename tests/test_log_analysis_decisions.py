@@ -64,3 +64,13 @@ def test_delisted_decision_gives_delisted():
 def test_technical_and_take_profit_prefixes():
     assert attach_exit_reasons(EXIT, sell_at('2026-11-01 12:00:10', reason='Technical sell: RSI')).exit_reason.tolist() == ['technical']
     assert attach_exit_reasons(EXIT, sell_at('2026-11-01 12:00:10', reason='Take Profit (+5%)')).exit_reason.tolist() == ['take_profit']
+
+
+def test_open_wallet_trade_has_nan_exits_and_float_columns(tmp_path):
+    wallet = VirtualWallet(db_path=str(tmp_path / 'w.db'), initial_balance=100.0)
+    wallet.record_buy('ABC-EUR', price=1.0, amount=10.0, fee=0.025)
+    df = load_wallet_trades(tmp_path / 'w.db')
+    [row] = df.itertuples()
+    assert np.isnan(row.exit_price) and np.isnan(row.pl_pct) and np.isnan(row.pl_eur) and pd.isna(row.exit_ts)
+    for column in ['entry_price', 'exit_price', 'pl_eur', 'pl_pct', 'fees_eur']:
+        assert df[column].dtype == float

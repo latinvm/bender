@@ -77,12 +77,12 @@ def load_wallet_trades(db_path: Path, utc_offset_hours: float = 0.0) -> pd.DataF
     return pd.DataFrame({
         'market': raw['market'],
         'entry_ts': pd.to_datetime(raw['entry_time']) - offset,
-        'entry_price': raw['entry_price'],
+        'entry_price': raw['entry_price'].astype(float),
         'exit_ts': pd.to_datetime(raw['exit_time']) - offset,
-        'exit_price': raw['exit_price'],
-        'pl_eur': raw['profit_loss'],
-        'pl_pct': raw['profit_loss_pct'],
-        'fees_eur': raw['fees'],
+        'exit_price': raw['exit_price'].astype(float),
+        'pl_eur': raw['profit_loss'].astype(float),
+        'pl_pct': raw['profit_loss_pct'].astype(float),
+        'fees_eur': raw['fees'].astype(float),
         'pre_log': 0,
     }, columns=TRADE_COLUMNS)
 
