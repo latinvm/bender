@@ -10,9 +10,17 @@ Indicator snapshots come from one of two sources:
   pass. Fast; RSI is within ~0.1% of the 100-candle window, MACD can differ
   near zero. Used for the broad per-market studies.
 
-Decisions are taken on closed 5m bars and filled at that bar's close with
-the virtual wallet's fee on both sides, mirroring EnhancedStrategy:
-a buy when flat and a signal fires, otherwise a sell when an exit fires.
+Decisions mirror EnhancedStrategy: a buy when flat and a signal fires,
+otherwise a sell when an exit fires. They are taken on closed bars of
+whatever interval the candles have (5m as the bot runs, or 1h).
+
+Fills (see replay()): by default at the bar's close with the virtual
+wallet's 0.25% fee on both sides and no spread. Costs sets the taker and
+maker fees and a half-spread, and `spreads` gives one per market: market
+orders then buy above and sell below the close. With Rules.entry_order or
+take_profit_order set to 'limit', the buy or the take-profit is a limit
+order that fills at its limit price, with the maker fee and no spread, once
+a bar's low (buy) or high (take-profit) reaches it.
 """
 
 from dataclasses import dataclass

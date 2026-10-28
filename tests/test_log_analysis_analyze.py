@@ -46,6 +46,12 @@ def test_gate_rejects_thin_or_marginal_periods():
     assert not passes_gate({**stats, 'live B (1-28 Oct)': dict(trades=250, avg_pl_pct=0.39)}, margin_pp=0.4)
 
 
+def test_gate_boundary_passes_and_nan_fails():
+    assert passes_gate({p: dict(trades=200, avg_pl_pct=0.4) for p in PERIODS}, margin_pp=0.4)
+    stats = {p: GOOD for p in PERIODS}
+    assert not passes_gate({**stats, 'live B (1-28 Oct)': dict(trades=250, avg_pl_pct=float('nan'))}, margin_pp=0.4)
+
+
 @pytest.mark.parametrize('interval, timeout', [('5m', '15min'), ('1h', '3h')])
 def test_limit_orders_wait_three_bars(interval, timeout):
     rules = order_rules(Rules(), 'limit', interval)

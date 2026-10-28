@@ -5,7 +5,7 @@ and the parser's `trades` table use, so a virtual run can be compared with a
 replay of the same period.
 
     decisions, skipped = load_decisions(sorted(Path('logs').glob('decisions-*.jsonl')))
-    trades = attach_exit_reasons(load_wallet_trades(Path('data/virtual_wallet.db')), decisions)
+    trades = attach_exit_reasons(load_wallet_trades(Path('data/virtual_trades.db')), decisions)
 """
 
 import json
