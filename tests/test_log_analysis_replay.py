@@ -189,13 +189,14 @@ def test_aug_oct_margin_is_reproducible():
     assert buy_reason(s, AUG_OCT_RULES) == NEAR_SUPPORT
 
 
-    def test_half_spread_is_paid_on_both_sides(self):
-        snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.2], rsi=[30, 50, 50])}
-        [t] = replay(snaps, rules=Rules(take_profit_pct=15.0), costs=Costs(half_spread=0.001)).itertuples()
-        assert t.entry_price == pytest.approx(1.001) and t.exit_price == pytest.approx(1.2 * 0.999)
-        assert t.pl_eur == pytest.approx(10 * (1.2 * 0.999 / 1.001) * 0.9975 - 10 * 1.0025)
+def test_half_spread_is_paid_on_both_sides():
+    snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.2], rsi=[30, 50, 50])}
+    [t] = replay(snaps, rules=Rules(take_profit_pct=15.0), costs=Costs(half_spread=0.001)).itertuples()
+    assert t.entry_price == pytest.approx(1.001) and t.exit_price == pytest.approx(1.2 * 0.999)
+    assert t.pl_eur == pytest.approx(10 * (1.2 * 0.999 / 1.001) * 0.9975 - 10 * 1.0025)
 
-    def test_per_market_spread_overrides_the_default(self):
-        snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.2], rsi=[30, 50, 50])}
-        [t] = replay(snaps, rules=Rules(take_profit_pct=15.0), costs=Costs(half_spread=0.0), spreads={'A-EUR': 0.002}).itertuples()
-        assert t.entry_price == pytest.approx(1.002)
+
+def test_per_market_spread_overrides_the_default():
+    snaps = {'A-EUR': flat_snapshots([1.0, 1.0, 1.2], rsi=[30, 50, 50])}
+    [t] = replay(snaps, rules=Rules(take_profit_pct=15.0), costs=Costs(half_spread=0.0), spreads={'A-EUR': 0.002}).itertuples()
+    assert t.entry_price == pytest.approx(1.002)
