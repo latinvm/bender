@@ -7,7 +7,7 @@ import pandas as pd
 import pandas_ta  # noqa: F401  (registers the DataFrame .ta accessor used in calculate_indicators)
 from trader.market import MarketOperations, parse_order_fills
 from trader.database import TradeDatabase
-from trader.exceptions import MarketDelistedError
+from trader.exceptions import MarketDelistedError, MarketNotFoundError
 from typing import Optional
 
 logger = logging.getLogger('trader.enhanced_strategy')
@@ -43,6 +43,8 @@ class EnhancedStrategy:
         # thread and the TUI price thread can detect it
         self.delisted = False
         self._delisting_lock = threading.Lock()
+        # Trading thread only: the delisting has been acted on and recorded
+        self._delisting_handled = False
 
         # Load active positions
         # In virtual mode, load from virtual wallet; otherwise load from regular database
@@ -155,7 +157,7 @@ class EnhancedStrategy:
         # For live P/L reporting, use current ticker price (not historical
         # close price) for consistency with the Active Positions pane
         if current_price is None:
-            current_price = self.get_current_price(use_cache=True)
+            current_price = self.get_current_price(use_cache=True, raise_if_delisted=True)
         if current_price is not None:
             profit_percentage = ((current_price - entry_price) / entry_price) * 100
             logger.debug(f"Sell check - RSI: {rsi:.2f}, MACD: {macd:.6f}, Signal: {macd_signal:.6f}, Price: €{price:.6f}, Upper BB: €{upper_bb:.6f}")
@@ -193,17 +195,23 @@ class EnhancedStrategy:
 
         return False, ""
 
-    def get_current_price(self, use_cache: bool = True, cache_max_age: float = 30.0) -> Optional[float]:
+    def get_current_price(self, use_cache: bool = True, cache_max_age: float = 30.0,
+                          raise_if_delisted: bool = False) -> Optional[float]:
         """Get current price with optional caching
 
         Args:
             use_cache: If True, return cached price if fresh enough
             cache_max_age: Maximum age of cache in seconds (default: 30s)
+            raise_if_delisted: Trading paths pass True so a delisting aborts the
+                decision in progress instead of continuing on a stale price.
+                The TUI keeps False: it only sets the flag and gets last_price.
 
         Returns:
             Current price or None if unavailable
         """
         if self.delisted:
+            if raise_if_delisted:
+                raise MarketDelistedError(f"{self.market} is delisted")
             return self.last_price
         if use_cache and self.last_price is not None and self.last_price_timestamp is not None:
             age = time.time() - self.last_price_timestamp
@@ -217,18 +225,20 @@ class EnhancedStrategy:
             return self.last_price
         except MarketDelistedError as e:
             self._mark_delisted(e)
+            if raise_if_delisted:
+                raise
             return self.last_price
         except Exception as e:
             logger.error(f"Error fetching current price: {str(e)}")
             return self.last_price  # Return stale cache if fetch fails
 
     def _mark_delisted(self, error: Exception) -> None:
-        """Stop trading a delisted market and release what it holds.
+        """Flag the market delisted and log it once. Never touches positions.
 
-        A delisted market can no longer be traded, so a virtual position is
-        closed at the last known price (no fee) to free its slot. A real
-        position is never touched automatically: the coins still exist on
-        the account and must be handled manually.
+        Callable from the TUI thread. Positions are only released by
+        _handle_delisting on the trading thread. A real position is never
+        changed automatically: the coins still exist on the account and
+        must be handled manually.
         """
         with self._delisting_lock:
             if self.delisted:
@@ -239,11 +249,20 @@ class EnhancedStrategy:
             logger.error(f"MARKET DELISTED: {self.market} ({error}). No further trading or price checks. "
                          f"The open position cannot be sold via the API: handle it manually on Bitvavo "
                          f"(it still counts toward the position limit).")
-            return
+        else:
+            logger.error(f"MARKET DELISTED: {self.market} ({error}). No further trading or price checks.")
 
-        logger.error(f"MARKET DELISTED: {self.market} ({error}). No further trading or price checks.")
-        if self.market in self.positions:
+    def _handle_delisting(self, df: Optional[pd.DataFrame], reason: str, entry_price: Optional[float]) -> None:
+        """Trading thread, once: release a virtual position and record one 'delisted' decision."""
+        if self._delisting_handled:
+            return
+        self._delisting_handled = True
+        if self.market in self.positions and self.virtual_wallet is not None:
             self._close_virtual_position_at_last_price()
+        try:
+            self._record_decision(df, 'delisted', reason, entry_price)
+        except Exception as e:
+            logger.warning(f"Could not record decision for {self.market}: {e}")
 
     def _close_virtual_position_at_last_price(self) -> None:
         price = self.last_price if self.last_price is not None else self.entry_prices[self.market]
@@ -266,7 +285,7 @@ class EnhancedStrategy:
         """Stop-loss/take-profit on the ticker alone, for when candles are unusable."""
         if self.market not in self.positions:
             return False, ""
-        current_price = self.get_current_price(use_cache=True)
+        current_price = self.get_current_price(use_cache=True, raise_if_delisted=True)
         if current_price is None:
             return False, ""
         entry_price = self.entry_prices[self.market]
@@ -274,16 +293,28 @@ class EnhancedStrategy:
 
     def execute_trade(self):
         """Execute the trading strategy and record the decision."""
-        if self.delisted:
-            return
         entry_price = self.entry_prices.get(self.market)
+        if self.delisted:
+            # Flagged (possibly by the TUI poll): no orders, ever
+            self._handle_delisting(None, f"{self.market} is delisted", entry_price)
+            return
         df = None
         try:
             df = self.calculate_indicators(self.get_historical_data())
             action, reason = self._decide_and_act(df)
         except MarketDelistedError as e:
             self._mark_delisted(e)
-            action, reason = 'delisted', str(e)
+            self._handle_delisting(df, str(e), entry_price)
+            return
+        except MarketNotFoundError as e:
+            # Candles answer a delisted market with error 205; only the ticker says 219
+            try:
+                self.get_current_price(use_cache=False, raise_if_delisted=True)
+            except MarketDelistedError as delisted:
+                self._handle_delisting(df, str(delisted), entry_price)
+                return
+            logger.error(f"Error executing trade: {str(e)}")
+            action, reason = 'error', str(e)
         except Exception as e:
             logger.error(f"Error executing trade: {str(e)}")
             action, reason = 'error', str(e)
@@ -327,7 +358,7 @@ class EnhancedStrategy:
                 return 'blocked_position_limit', buy_reason
 
             # Place buy order
-            current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
+            current_price = self.get_current_price(use_cache=False, raise_if_delisted=True)  # Always fetch fresh for trading
             if current_price is None:
                 logger.error("Cannot execute buy: price unavailable")
                 return 'no_price', buy_reason
@@ -355,7 +386,7 @@ class EnhancedStrategy:
 
         if should_sell and self.market in self.positions:
             # Place sell order
-            current_price = self.get_current_price(use_cache=False)  # Always fetch fresh for trading
+            current_price = self.get_current_price(use_cache=False, raise_if_delisted=True)  # Always fetch fresh for trading
             if current_price is None:
                 logger.error("Cannot execute sell: price unavailable")
                 return 'no_price', sell_reason

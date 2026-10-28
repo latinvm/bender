@@ -7,6 +7,7 @@ seconds and every strategy cycle crashed on empty candle data before the
 stop-loss could run.
 """
 
+import json
 import logging
 from unittest.mock import Mock, patch
 
@@ -14,9 +15,11 @@ import pytest
 
 from trader.bitvavo import check_bitvavo_response
 from trader.enhanced_strategy import EnhancedStrategy
-from trader.exceptions import MarketDelistedError
+from trader.exceptions import MarketDelistedError, MarketNotFoundError
 from trader.multi_market_strategy import MultiMarketStrategy
 from trader.virtual_wallet import VirtualWallet
+
+from .test_decision_log import FALLING, candles
 
 DELISTED_RESPONSE = {'errorCode': 219, 'error': 'This market has been delisted.'}
 
@@ -142,3 +145,69 @@ class TestTooFewCandles:
 
         strategy.market_ops.place_market_order.assert_not_called()
         assert not [r for r in caplog.records if 'Error executing trade' in r.getMessage()]
+
+
+def realistic_delisted_ops(candles_error=True):
+    ops = Mock()
+    if candles_error:
+        ops.get_historical_candles.side_effect = MarketNotFoundError('candles RVN-EUR: market parameter is invalid.')
+    else:
+        ops.get_historical_candles.return_value = []
+    ops.get_ticker.side_effect = MarketDelistedError('ticker RVN-EUR: This market has been delisted.')
+    return ops
+
+
+def test_realistic_delisting_closes_virtual_position_once(wallet_holding_rvn, caplog):
+    strategy = EnhancedStrategy(realistic_delisted_ops(), 'RVN-EUR', virtual_wallet=wallet_holding_rvn)
+    strategy.last_price = 0.021
+    with caplog.at_level(logging.INFO):
+        strategy.execute_trade()
+        strategy.execute_trade()
+    assert wallet_holding_rvn.get_active_positions() == []
+    assert len(wallet_holding_rvn.get_trade_history()) == 1
+    actions = [json.loads(r.getMessage())['action'] for r in caplog.records if r.name == 'trader.decisions']
+    assert actions == ['delisted']
+    assert not [r for r in caplog.records if 'Error executing trade' in r.getMessage()]
+
+
+def test_real_mode_never_orders_on_a_delisted_market():
+    with patch('trader.enhanced_strategy.TradeDatabase') as db_class:
+        db_class.return_value.get_active_positions.return_value = [
+            {'market': 'RVN-EUR', 'amount': 500.0, 'entry_price': 0.02}]
+        strategy = EnhancedStrategy(realistic_delisted_ops(candles_error=False), 'RVN-EUR')
+    strategy.last_price = 0.018   # -10%: the stop-loss would fire on the stale price
+    strategy.execute_trade()
+    strategy.execute_trade()
+    strategy.market_ops.place_market_order.assert_not_called()
+    assert 'RVN-EUR' in strategy.positions
+
+
+def test_delisting_seen_by_price_polling_is_handled_by_the_trading_thread(wallet_holding_rvn):
+    strategy = EnhancedStrategy(realistic_delisted_ops(), 'RVN-EUR', virtual_wallet=wallet_holding_rvn)
+    strategy.last_price = 0.021
+    strategy.get_current_price(use_cache=False)          # TUI thread
+    assert len(wallet_holding_rvn.get_active_positions()) == 1
+    strategy.execute_trade()                              # trading thread
+    assert wallet_holding_rvn.get_active_positions() == []
+
+
+def test_buy_signal_on_a_market_delisted_mid_cycle_places_no_order():
+    ops = realistic_delisted_ops()
+    ops.get_historical_candles.side_effect = None
+    ops.get_historical_candles.return_value = candles(FALLING)          # RSI 0: buy signal
+    strategy = EnhancedStrategy(ops, 'NEW-EUR', virtual_wallet=Mock(get_active_positions=Mock(return_value=[])))
+    strategy.execute_trade()
+    ops.place_market_order.assert_not_called()
+
+
+def test_price_polling_survives_rotation_during_iteration():
+    ops = Mock()
+    ops.get_ticker.return_value = {'price': '1.0'}
+    multi = MultiMarketStrategy(ops, ['A-EUR', 'B-EUR'],
+                                virtual_wallet=Mock(get_active_positions=Mock(return_value=[])))
+
+    def rotate_out_b(**kwargs):
+        multi.strategies.pop('B-EUR', None)
+        return 1.0
+    multi.strategies['A-EUR'].get_current_price = rotate_out_b
+    multi.get_current_prices()   # must not raise RuntimeError

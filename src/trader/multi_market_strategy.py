@@ -153,7 +153,8 @@ class MultiMarketStrategy:
             Dict mapping market -> current price
         """
         prices = {}
-        for market, strategy in self.strategies.items():
+        # Snapshot: the trading thread's rotation deletes from self.strategies
+        for market, strategy in list(self.strategies.items()):
             price = strategy.get_current_price(use_cache=use_cache, cache_max_age=cache_max_age)
             if price is not None:
                 prices[market] = price
