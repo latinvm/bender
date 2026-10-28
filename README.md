@@ -2,11 +2,17 @@
 
 An open-source crypto trading bot that automates your trading on the [Bitvavo](https://bitvavo.com/invite?a=00B4208D84) exchange. Bender uses technical analysis (RSI, MACD, Bollinger Bands) to execute trades 24/7, featuring multi-market portfolio management, risk controls, and both paper trading and live trading modes.
 
+## 📊 Project status
+
+Bender is an experiment, not a proven money-maker. From August to October 2026 it paper-traded for 76 days on live Bitvavo data. That run found a bug the backtests had missed: candles were read in reverse order, so every indicator, and the market scorer, worked backwards. It also showed that even with the bug fixed, the buy signals' edge (+0.1–0.3% per trade) is smaller than the fees (0.5% per round trip). The bugs are fixed. The full analysis, with the tools to reproduce it, is in [docs/analysis](docs/analysis/2026-10-28-log-analysis.md). The next step is testing whether lower trading costs close that gap. Until a version beats those costs on paper, use virtual mode.
+
 ## 🧪 A Vibe Coding Origin Story
 
 Bender started as my first "vibe coding" experiment. What began as copy-pasting functions and classes through Claude's chat interface—iterating piece by piece, asking "can you add this?" and "what if we did that?"—has evolved into a fully-fledged trading bot built with [Claude Code](https://github.com/anthropics/claude-code).
 
 The journey from scattered code snippets in a chat window to a structured project with proper testing, architecture, and documentation has been a testament to how AI-assisted development is changing the way we build software. This project represents the full spectrum: from the earliest days of prompting for individual functions, to now having an AI pair programmer that understands the entire codebase.
+
+The 76-day paper-trading run in 2026 also showed me the limits of that approach. The code looked right, the tests passed and the backtests looked reasonable, yet every indicator was being computed on candles in reverse order: the backtester sorted its candles, and the live bot didn't. Nothing crashed, so nothing flagged it. It took parsing the 1 GB log and checking it against the exchange's own data to find it. The lesson: code, AI-written or not, has to be checked against what it actually does on real data, not only against its tests.
 
 ## 🌟 Why Bender?
 
@@ -14,22 +20,22 @@ Ever wished you had a reliable companion to handle your crypto trading while you
 
 ### 🎯 What Makes Bender Special
 
-- **Peace of Mind**: Set your strategy and let Bender handle the rest
+- **Hands-off**: Set your strategy and Bender runs it for you
 - **24/7 Operation**: Markets never sleep, and neither does Bender
-- **Smart Strategies**: Implements proven trading strategies while managing risks
-- **Transparent**: Always know what's happening with your trades
+- **Risk Controls**: Stop-loss, take-profit, a daily loss limit and a drawdown halt
+- **Transparent**: Every decision is logged, and the tools to analyse a run are included
 - **User-Friendly**: Built with simplicity in mind - no complex setups needed
 
 ### 📈 Trading Strategy
 
-Bender uses a carefully crafted trading strategy designed for both safety and performance:
+Bender combines three common technical-analysis buy signals with fixed exits. They are a starting point, not a proven edge: see the [Aug–Oct 2026 analysis](docs/analysis/2026-10-28-log-analysis.md) for how they performed.
 
 #### 🎯 Multi-Signal Buy Strategy
 
 Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. This gives more opportunities while maintaining quality:
 
 **Signal 1: Strong Oversold (RSI < 40)**
-- **What it means**: The price has dropped significantly and is likely to bounce back
+- **What it means**: The price has dropped significantly and may bounce back
 - **Think of it as**: A rubber band stretched down - it wants to snap back up
 - **Example**: `BOME-EUR: RSI 24.79 → Strong Oversold! ✓ BUY`
 
@@ -47,7 +53,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 
 **Technical Sell Signal (RSI > 60 AND MACD < Signal)**
 - Price is overbought AND momentum is turning negative
-- Exits before major reversals
+- Aims to exit before a reversal
 
 **Automatic Risk Controls**
 - **Stop-Loss**: Sells at -5% by default (configurable via `STOP_LOSS_PCT`)
@@ -67,7 +73,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - **Bid-ask spread filtering** (rejects markets with >0.5% spread)
 - **Volume consistency checks** (detects and avoids pump & dump patterns)
 - **Risk-adjusted returns analysis** (Sharpe & Sortino ratios)
-- **Volatility-focused selection** to maximize trading opportunities
+- **Volatility-focused selection** for more trading opportunities
 
 #### 💼 Portfolio Management
 
@@ -228,8 +234,14 @@ When you use the `--monitor` flag, Bender runs a beautiful live terminal UI:
 - **Real-time updates** - See trades happen instantly as the bot runs
 - **Live positions** - Watch your positions and P/L update every 5 seconds
 - **Trading statistics** - View win rate, total trades, and performance metrics
-- **Logs to file** - All output goes to `logs/YYYY-MM-DD.log` instead of console
+- **Logs to file** - All output goes to `logs/YYYY-MM-DD.log` instead of console (a new file each day)
 - **Interactive** - Press `r` to refresh, `q` to quit
+
+The text log keeps trades, rotations and errors at the default `INFO` level. The per-check
+details (indicator values, signal checks, ticker fetches) are logged at `DEBUG`; set
+`LOG_LEVEL=DEBUG` in `.env` to see them. Every evaluation is also written as one JSON line to
+`logs/decisions-YYYY-MM-DD.jsonl` (market, action, reason, price, candle time and indicator values),
+which is what the analysis tools below build on.
 
 ```bash
 # Virtual trading with live monitor
@@ -245,6 +257,27 @@ Test strategies on historical data:
 ```bash
 trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 ```
+
+### Analysing a run
+
+`tools/log_analysis/` turns a text log into data and tests what would have worked. All output
+goes to `data/analysis/` (not committed):
+
+```bash
+# 1. Parse a log into SQLite (~1 minute per GB)
+python -m tools.log_analysis.parse logs/2026-08-13.log --db data/analysis/bender_2026-08-13.db
+
+# 2. Download Bitvavo 5-minute candles for the markets in the log (public data, no API key)
+python -m tools.log_analysis.candles --markets-file markets.txt \
+    --start 2026-05-15 --end 2026-10-29 --db data/analysis/candles_5m.db
+
+# 3. Replay the strategy and write report.md + results.json
+python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db \
+    --candles data/analysis/candles_5m.db --out data/analysis
+```
+
+The findings from the 13 Aug - 28 Oct 2026 virtual run are in
+[docs/analysis/2026-10-28-log-analysis.md](docs/analysis/2026-10-28-log-analysis.md).
 
 ## 🔧 Known Issues & Fixes
 
@@ -304,7 +337,7 @@ Contributions are welcome! Feel free to:
 If you find Bender helpful, the best way to support its development is by:
 1. Using my [Bitvavo referral link](https://bitvavo.com/invite?a=00B4208D84) when creating your account
 2. Starring the project on GitHub
-3. Sharing your success stories!
+3. Sharing your results, good or bad!
 
 ## 📝 License
 
