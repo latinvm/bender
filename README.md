@@ -4,7 +4,7 @@ An open-source crypto trading bot that automates your trading on the [Bitvavo](h
 
 ## 📊 Project status
 
-Bender is an experiment, not a proven money-maker. From August to October 2026 it paper-traded for 76 days on live Bitvavo data. That run found a bug the backtests had missed: candles were read in reverse order, so every indicator, and the market scorer, worked backwards. It also showed that even with the bug fixed, the buy signals' edge (+0.1–0.3% per trade) is smaller than the fees (0.5% per round trip). The bugs are fixed. The full analysis, with the tools to reproduce it, is in [docs/analysis](docs/analysis/2026-10-28-log-analysis.md). The next step is testing whether lower trading costs close that gap. Until a version beats those costs on paper, use virtual mode.
+Bender is an experiment, not a proven money-maker. From August to October 2026 it paper-traded for 76 days on live Bitvavo data. That run found a bug the backtests had missed: candles were read in reverse order, so every indicator, and the market scorer, worked backwards. It also showed that even with the bug fixed, the buy signals' edge (+0.1–0.3% per trade) is smaller than the fees (0.5% per round trip). The bugs are fixed. The full analysis, with the tools to reproduce it, is in [docs/analysis](docs/analysis/2026-10-28-log-analysis.md). A follow-up test of lower trading costs in the replay (limit orders, hourly candles, tight-spread markets) found that none of them closes that gap: see the [cost experiments](docs/analysis/2026-10-28-cost-experiments.md). Until a version beats those costs on paper, use virtual mode.
 
 ## 🧪 A Vibe Coding Origin Story
 
@@ -165,7 +165,7 @@ MAX_SPREAD_PCT=0.5               # Skip markets whose bid-ask spread is wider th
 - **STRATEGY_INTERVAL**: How often to check for trading signals in seconds (default: 60)
 - **MARKET_CACHE_HOURS**: How long to cache market rankings (default: 6 hours)
 - **MAX_CANDIDATES**: Number of top markets to analyze deeply (default: 30)
-- **MAX_SPREAD_PCT**: Widest bid-ask spread, in percent, a market may have and still be traded (default: 0.5). Must be greater than 0. Lower values trade only tight-spread markets.
+- **MAX_SPREAD_PCT**: Widest bid-ask spread, in percent, a market may have and still be traded (default: 0.5). Must be greater than 0. Lower values trade only tight-spread markets. Strict values shrink the pool of candidates: if none passes, Bender opens no new positions (open ones are still managed) until a rescan finds one. Virtual fills do not pay the spread, so the benefit of a lower limit cannot show up in paper trading.
 
 **Example Custom Configuration:**
 ```env
@@ -251,7 +251,7 @@ The text log keeps trades, rotations and errors at the default `INFO` level. The
 details (indicator values, signal checks, ticker fetches) are logged at `DEBUG`; set
 `LOG_LEVEL=DEBUG` in `.env` to see them. Every evaluation is also written as one JSON line to
 `logs/decisions-YYYY-MM-DD.jsonl` (market, action, reason, price, candle time and indicator values).
-That decision log is there for analysing future runs; the analysis tools below read the text log.
+`calibrate` (below) reads that decision log; the other analysis tools read the text log.
 
 ```bash
 # Virtual trading with live monitor
@@ -274,8 +274,8 @@ trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 goes to `data/analysis/` (not committed).
 
 The parser reads the per-check lines ("Buy check …", "Sell check …"), which are now logged at
-`DEBUG`. So the steps below work on text logs written before that change, such as the
-Aug–Oct 2026 run, or on logs written with `LOG_LEVEL=DEBUG`.
+`DEBUG`. So the three numbered steps below work on text logs written before that change, such as
+the Aug–Oct 2026 run, or on logs written with `LOG_LEVEL=DEBUG`.
 
 ```bash
 # 1. Parse a log into SQLite (~1 minute per GB)
@@ -293,8 +293,28 @@ python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db
     --candles data/analysis/candles_5m.db --out data/analysis
 ```
 
+The cost experiments are section 7 of the same tool and also need hourly candles:
+
+```bash
+python -m tools.log_analysis.candles --markets-file markets.txt --interval 1h \
+    --start 2026-05-01 --end 2026-10-29 --db data/analysis/candles_1h.db
+python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db \
+    --candles data/analysis/candles_5m.db --candles-1h data/analysis/candles_1h.db \
+    --out data/analysis/cost-experiments --sections 7
+```
+
+To check the replay against a run of the fixed bot, `calibrate` compares the replay with the JSON
+decision logs and the virtual wallet. It needs no `DEBUG` lines, fetches the 5-minute candles that
+cover the decisions, and writes `calibration.md` and `calibration.json`:
+
+```bash
+python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db \
+    --candles data/analysis/candles_5m.db --out data/analysis/calibration
+```
+
 The findings from the 13 Aug - 28 Oct 2026 virtual run are in
-[docs/analysis/2026-10-28-log-analysis.md](docs/analysis/2026-10-28-log-analysis.md).
+[docs/analysis/2026-10-28-log-analysis.md](docs/analysis/2026-10-28-log-analysis.md), and the cost
+experiments in [docs/analysis/2026-10-28-cost-experiments.md](docs/analysis/2026-10-28-cost-experiments.md).
 
 ## 🔧 Known Issues & Fixes
 

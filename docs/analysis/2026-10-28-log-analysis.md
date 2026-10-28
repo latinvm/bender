@@ -252,6 +252,9 @@ In order of priority:
      per trade.
    - **Only trade tight-spread markets.** The scorer accepts spreads up to 0.5%, which costs as much
      as the fees.
+
+   The [cost experiments](2026-10-28-cost-experiments.md) have since tested all three in the replay:
+   none of them closes the gap.
 6. **Do not expect much from market selection.** The fix makes the scorer prefer rising markets
    instead of falling ones, but a market's 7-day Sharpe ratio barely predicts its next day (rank
    correlation +0.03). A score based mainly on liquidity (volume, spread) would at least lower costs.

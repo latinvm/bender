@@ -118,10 +118,12 @@ Average net P/L per trade, after fees and spread:
   47–99% as many trades as the market-order ones. A plausible reason, not tested here: a buy 0.5%
   below the signal price fills only when the price keeps falling, and misses the entries where it
   rises straight away. The fee and spread saved do not make up for that.
-- **Hourly candles mostly make the swings bigger.** With current rules and market orders the hourly
-  replay made +1.75% in live A (5m: +0.15%) and lost 1.55% and 1.93% in the other periods (5m: 0.97%
-  and 1.15%). With TP 3 / SL 3 and market orders the interval made little difference (within 0.13
-  points in every period).
+- **What hourly candles do depends on the rules.** With current rules and market orders they made the
+  swings bigger: the hourly replay made +1.75% in live A (5m: +0.15%) and lost 1.55% and 1.93% in the
+  other periods (5m: 0.97% and 1.15%). With RSI < 30 only and market orders, hourly did better in
+  live A and live B (+0.52% against +0.16%, −0.59% against −0.92%) and worse before the run (−0.72%
+  against −0.60%). With TP 3 / SL 3 and market orders the interval made little difference (within
+  0.13 points in every period).
 
 ## 3. Spread terciles
 
@@ -135,7 +137,7 @@ logs it.
 | Middle | 47 | 0.175–0.238% | −0.99% | +0.25% | −1.15% | 3,012 / 1,820 / 1,003 |
 | Highest | 48 | 0.241–2.470% | −1.06% | +0.02% | −1.48% | 2,684 / 1,596 / 909 |
 
-- **The lowest tercile did better than the highest in every period**, by 0.18, 0.16 and 0.55 points.
+- **The lowest tercile did better than the highest in every period**, by 0.17, 0.15 and 0.56 points.
   That is Task 14's gate.
 - **The gap is the spread charge itself.** The replay charges each market its own spread. Section 7
   also reruns the same tercile rows with the spread set to zero and everything else unchanged. It
@@ -180,6 +182,8 @@ logs it.
 - **Hourly exits are coarser.** On 1-hour candles the replay checks the stop-loss, the technical exit
   and (with market orders) the take-profit only at each hourly close, while the bot checks prices every
   minute. Whether this makes the hourly rows better or worse than a live bot would do is not known.
+- **Period boundaries:** each period includes its whole end date, as in the log analysis, so
+  neighbouring periods share one day: "before" also includes 13 Aug and live A also includes 1 Oct.
 - **One market regime:** 90 days before the run plus the 76 days of the run, the same data as the log
   analysis.
 - **Per market, not the portfolio:** each market is replayed on its own with one position, not with the
@@ -204,10 +208,11 @@ Reproduce with:
 ```bash
 venv/bin/python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db \
     --candles data/analysis/candles_5m.db --candles-1h data/analysis/candles_1h.db \
-    --out data/analysis --sections 7
+    --out data/analysis/cost-experiments --sections 7
 ```
 
 It writes the tables of sections 2 and 3 and the spread figures in section 1 to `report.md` and
-`results.json` in `data/analysis/` (not committed). The inputs come from the commands under "Analysing
+`results.json` in `data/analysis/cost-experiments/` (not committed), leaving the log analysis's
+report in `data/analysis/` in place. The inputs come from the commands under "Analysing
 a run" in the README. The hourly candles come from `tools.log_analysis.candles` with `--interval 1h
 --start 2026-05-01 --end 2026-10-29 --db data/analysis/candles_1h.db`.
