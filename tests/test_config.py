@@ -119,7 +119,7 @@ def test_max_spread_pct_from_env(clean_env, monkeypatch):
     _, _, _, strategy_config = trader.config.get_config(load_env=False)
     assert strategy_config.max_spread_pct == 0.2
 
-@pytest.mark.parametrize('value', ['0', '-0.1'])
+@pytest.mark.parametrize('value', ['0', '-0.1', 'nan'])
 def test_max_spread_pct_must_be_positive(clean_env, monkeypatch, value):
     monkeypatch.setenv('MAX_SPREAD_PCT', value)
     with pytest.raises(ValueError, match='MAX_SPREAD_PCT must be greater than 0'):

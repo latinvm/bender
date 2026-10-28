@@ -93,7 +93,7 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
     max_daily_loss_pct = float(os.getenv('MAX_DAILY_LOSS_PCT', '10.0'))
     max_drawdown_pct = float(os.getenv('MAX_DRAWDOWN_PCT', '25.0'))
     max_spread_pct = float(os.getenv('MAX_SPREAD_PCT', '0.5'))
-    if max_spread_pct <= 0:
+    if not max_spread_pct > 0:  # also rejects NaN
         raise ValueError("MAX_SPREAD_PCT must be greater than 0")
 
     return (
