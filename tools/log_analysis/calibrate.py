@@ -1,10 +1,11 @@
 """Calibrate the replay against a real (virtual) run of the fixed bot.
 
 Reads the structured decision logs and the virtual wallet, fetches 5-minute
-candles for any market missing from the candle store, and measures how far the
-replay is from what the bot did: do recomputed indicators and buy decisions
-match the log, and does the replay exit the real trades the same way. Writes
-calibration.json and calibration.md to --out.
+candles covering the decisions for every market in them (also markets the
+candle store already holds, whose candles may end before this run), and
+measures how far the replay is from what the bot did: do recomputed indicators
+and buy decisions match the log, and does the replay exit the real trades the
+same way. Writes calibration.json and calibration.md to --out.
 
     venv/bin/python -m tools.log_analysis.calibrate \\
         --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db \\
@@ -30,8 +31,13 @@ AFTER_LAST = pd.Timedelta(days=1)
 
 
 def ensure_candles(store: CandleStore, markets, start: pd.Timestamp, end: pd.Timestamp, fetch: Callable = fetch_candles) -> list:
-    """Fetch and store candles for markets not in the store yet; return the markets fetched."""
-    todo = sorted(set(markets) - store.fetched_markets())
+    """Fetch [start, end] for every market and upsert it into the store; return the markets fetched.
+
+    Every market is fetched, including ones already stored: the store records
+    which markets it holds but not for which dates, so an earlier run's
+    candles would otherwise be used for this run's decisions.
+    """
+    todo = sorted(set(markets))
     start_ms, end_ms = (int(t.tz_localize('UTC').timestamp() * 1000) for t in (start, end))
     for i, market in enumerate(todo, 1):
         candles = fetch(market, start_ms, end_ms)
@@ -69,7 +75,9 @@ def report(decisions_result: dict, exits: dict, skipped: int, counts: dict) -> l
     return ['# Replay calibration', '',
             f"{counts['trades']} wallet trades ({counts['closed']} closed); {skipped} unreadable decision-log lines skipped.", '',
             '## Decisions', '',
-            f"{d['compared']} logged decisions with a flat position were recomputed from candles.", '',
+            f"{d['compared']} logged decisions with a flat position were recomputed from candles. Not compared: "
+            f"{d['missing_windows']} with no candle window and {d['stale_windows']} whose window ends at a different "
+            "candle than the logged one.", '',
             f"- Indicators match (RSI within 1 point, close within 0.2%): **{fmt(d['indicator_match_pct'])}%**.",
             f"- Buy or no buy agrees with the log: **{fmt(d['buy_agreement_pct'])}%**.", '',
             '## Exits', '',

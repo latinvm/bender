@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.log_analysis_helpers import FIVE_MIN, T0, candle_frame, flat_snapshots
+from tests.log_analysis_helpers import FIVE_MIN, T0, candle_frame, flat_snapshots, random_walk
+from tools.log_analysis.candles import CandleStore
+from tools.log_analysis.calibrate import ensure_candles
 from tools.log_analysis.replay import Rules, window_snapshot
 from tools.log_analysis.validation import decision_agreement, exit_agreement
 
@@ -34,6 +36,54 @@ def test_decision_agreement_matches_logged_buy():
                                    rsi=snap.rsi, candle_close=snap.close)])
     result = decision_agreement(decisions, lambda m: candles, Rules(), sample=10)
     assert result['indicator_match_pct'] == 100 and result['buy_agreement_pct'] == 100
+
+
+def flat_decision(candles, t, action, market='A-EUR'):
+    """A logged flat-position decision whose indicators are what the candles give at t."""
+    snap = window_snapshot(candles, t)
+    return dict(ts=t, market=market, action=action, entry_price=np.nan, candle_ts=t, rsi=snap.rsi, candle_close=snap.close)
+
+
+def test_decision_agreement_counts_a_logged_decision_the_rules_disagree_with():
+    candles = candle_frame(np.linspace(2.0, 1.0, 300))           # falling: the rules buy at every candle
+    t = candles.index[-1]
+    decisions = pd.DataFrame([flat_decision(candles, t, 'buy'), flat_decision(candles, t - FIVE_MIN, 'monitor')])
+    result = decision_agreement(decisions, lambda m: candles, Rules(), sample=10)
+    assert result['compared'] == 2 and result['indicator_match_pct'] == 100
+    assert result['buy_agreement_pct'] == 50
+
+
+def test_stale_and_missing_windows_are_counted_not_compared():
+    candles = candle_frame(np.linspace(2.0, 1.0, 300))
+    t = candles.index[-1]
+    later = t + pd.Timedelta(days=3)                             # the store has nothing this recent
+    decisions = pd.DataFrame([
+        flat_decision(candles, t, 'buy'),
+        dict(ts=later, market='A-EUR', action='monitor', entry_price=np.nan, candle_ts=later, rsi=50.0, candle_close=1.5),
+        flat_decision(candles, t, 'buy', market='B-EUR'),         # no candles at all for B-EUR
+    ])
+    result = decision_agreement(decisions, lambda m: candles if m == 'A-EUR' else candles.iloc[:0], Rules(), sample=10)
+    assert (result['compared'], result['stale_windows'], result['missing_windows']) == (1, 1, 1)
+    assert result['indicator_match_pct'] == 100 and result['buy_agreement_pct'] == 100
+
+
+def test_a_market_already_in_the_store_gets_the_decision_span_fetched(tmp_path):
+    store = CandleStore(tmp_path / 'c.db')
+    store.save('A-EUR', random_walk('2026-10-20', '2026-10-29', '5min', seed=1))   # candles from an earlier run
+    calls = []
+
+    def fetch(market, start_ms, end_ms):
+        calls.append((market, start_ms, end_ms))
+        return random_walk('2026-11-01', '2026-11-15', '5min', seed=2)
+
+    start, end = pd.Timestamp('2026-11-03'), pd.Timestamp('2026-11-14')
+    assert ensure_candles(store, {'A-EUR'}, start, end, fetch) == ['A-EUR']
+    ms = [int(x.tz_localize('UTC').timestamp() * 1000) for x in (start, end)]
+    assert calls == [('A-EUR', *ms)]
+    stored = store.load('A-EUR')
+    assert stored.index.min() == pd.Timestamp('2026-10-20') and stored.index.max() == pd.Timestamp('2026-11-15')
+    ensure_candles(store, {'A-EUR'}, start, end, fetch)          # fetching the span again upserts, no duplicates
+    assert store.load('A-EUR').index.is_unique and len(store.load('A-EUR')) == len(stored)
 
 
 def test_calibrate_cli_end_to_end_with_stubbed_fetch(tmp_path):
@@ -66,5 +116,9 @@ def test_calibrate_cli_end_to_end_with_stubbed_fetch(tmp_path):
     result = json.loads((out / 'calibration.json').read_text())
     assert fetched == ['A-EUR'] and result['skipped_lines'] == 1
     assert result['trade_counts'] == dict(trades=1, closed=1) and result['decision_agreement']['compared'] == 3
-    assert (out / 'calibration.md').read_text().startswith('# Replay calibration')
-    assert main(args, fetch=fetch) == 0 and fetched == ['A-EUR']   # candles now cached
+    assert result['decision_agreement']['missing_windows'] == 0 and result['decision_agreement']['stale_windows'] == 0
+    md = (out / 'calibration.md').read_text()
+    assert md.startswith('# Replay calibration') and '0 with no candle window and 0 whose window ends' in md
+    # A rerun fetches the decisions' span again (the store keeps no dates) and upserts it
+    assert main(args, fetch=fetch) == 0 and fetched == ['A-EUR', 'A-EUR']
+    assert json.loads((out / 'calibration.json').read_text()) == result

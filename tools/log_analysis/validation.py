@@ -2,7 +2,7 @@
 
 exit_agreement() restarts every real trade at its real entry and lets the
 replay choose the exit; decision_agreement() recomputes logged decisions from
-candles. Both are used by analyze (section 3) and calibrate.
+candles. analyze (section 3) uses exit_agreement; calibrate uses both.
 """
 
 from typing import Callable
@@ -59,19 +59,27 @@ def decision_agreement(decisions: pd.DataFrame, candles_for: Callable[[str], pd.
 
     Indicators match when RSI is within 1 point and the candle close within
     0.2% of the logged values; the buy check compares the logged action with
-    whether `rules` would signal a buy on the recomputed snapshot.
+    whether `rules` would signal a buy on the recomputed snapshot. Only windows
+    that end at the logged candle are compared: `missing_windows` counts
+    decisions with no snapshot, `stale_windows` those whose window ends at a
+    different candle (the store lacks the logged one).
     """
     flat = decisions[decisions.rsi.notna() & decisions.entry_price.isna()]
     picked = flat.sample(n=min(sample, len(flat)), random_state=seed)
-    cache, rows = {}, []
+    cache, rows, missing, stale = {}, [], 0, 0
     for r in picked.itertuples():
         if r.market not in cache:
             cache[r.market] = candles_for(r.market)
         snap = window_snapshot(cache[r.market], r.candle_ts)
         if snap is None:
+            missing += 1
+            continue
+        if snap.candle_ts != r.candle_ts:
+            stale += 1
             continue
         rows.append(dict(match=abs(snap.rsi - r.rsi) <= 1 and abs(snap.close / r.candle_close - 1) <= 0.002,
                          agree=(r.action in BUY_ACTIONS) == (buy_reason(snap, rules) is not None)))
     df = pd.DataFrame(rows, columns=['match', 'agree'])
-    return dict(compared=len(df), indicator_match_pct=df.match.astype(float).mean() * 100,
+    return dict(compared=len(df), missing_windows=missing, stale_windows=stale,
+                indicator_match_pct=df.match.astype(float).mean() * 100,
                 buy_agreement_pct=df.agree.astype(float).mean() * 100)
