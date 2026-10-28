@@ -21,8 +21,13 @@ def flat_snapshots(prices, rsi, low=None, high=None):
                          'low': prices if low is None else low, 'high': prices if high is None else high, 'bb_lower': 0.0, 'bb_upper': 1e9, 'trend_1d': np.nan, 'trend_7d': np.nan}, index=index)
 
 
-def hourly_random_walk(start, end, seed=3):
-    """Hourly candles in the format CandleStore.save takes: [ts_ms, open, high, low, close, volume]."""
-    index = pd.date_range(start, end, freq='1h', tz='UTC')
+def random_walk(start, end, freq, seed=3):
+    """Candles every `freq` in the format CandleStore.save takes: [ts_ms, open, high, low, close, volume]."""
+    index = pd.date_range(start, end, freq=freq, tz='UTC')
     closes = 100 * np.exp(np.cumsum(np.random.default_rng(seed).normal(0, 0.01, len(index))))
     return [[int(t.timestamp() * 1000), c, c * 1.002, c * 0.998, c, 1000.0] for t, c in zip(index, closes, strict=True)]
+
+
+def hourly_random_walk(start, end, seed=3):
+    """Hourly candles in the format CandleStore.save takes: [ts_ms, open, high, low, close, volume]."""
+    return random_walk(start, end, '1h', seed)

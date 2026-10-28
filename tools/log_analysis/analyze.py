@@ -8,6 +8,7 @@ results.json (the same numbers, machine-readable) to --out.
         --log-db data/analysis/bender_2026-08-13.db \\
         --candles data/analysis/candles_5m.db --out data/analysis
 
+Section 7 (cost experiments) also needs --candles-1h, the hourly candle cache.
 Log timestamps are UTC (verified against Bitvavo candles).
 """
 
@@ -24,12 +25,17 @@ import pandas as pd
 
 from tools.log_analysis.candles import INTERVAL_MS, CandleStore
 from tools.log_analysis.replay import (
-    AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Rules, buy_reason, full_series_snapshots, replay, window_snapshot,
+    AUG_OCT_RULES, MODERATE, NEAR_SUPPORT, STRONG, Costs, Rules, buy_reason, full_series_snapshots, replay, window_snapshot,
     window_snapshots)
 from tools.log_analysis.validation import exit_agreement
 
 FEE_ROUND_TRIP_PCT = 0.5
 FIVE_MIN = pd.Timedelta(minutes=5)
+
+# How optimistic the replay is, in percentage points per trade (spec section 8).
+# Task 8 replaces it with max(0.4, optimism_pp) from tools.log_analysis.calibrate
+CALIBRATION_MARGIN_PP = 0.4
+GATE_MIN_TRADES = 200
 
 # Walk-forward periods: rules are judged on the period before the live run
 # and then checked on the live run itself, split in two halves
@@ -104,14 +110,13 @@ def trade_stats(trades: pd.DataFrame) -> dict:
                 median_hold_h=pd.to_timedelta(hold).median() / pd.Timedelta(hours=1))
 
 
-_store = None
+_stores = {}  # one per candle cache: a worker of section 7 reads both the 5m and the 1h cache
 
 
 def _candles(db_path, market):
-    global _store
-    if _store is None:
-        _store = CandleStore(db_path)
-    return _store.load(market)
+    if db_path not in _stores:
+        _stores[db_path] = CandleStore(db_path)
+    return _stores[db_path].load(market)
 
 
 def schedule_from_checks(conn) -> pd.DataFrame:
@@ -429,9 +434,123 @@ def market_selection(conn, candles_db) -> tuple:
     return md, result
 
 
+# -------------------------------------------- 7. cost experiments, gate
+
+COSTS = Costs()  # Bitvavo base tier on EUR markets: 0.25% taker, 0.15% maker
+COST_INTERVALS = ('5m', '1h')
+ORDER_TYPES = ('market', 'limit')
+LIMIT_TIMEOUT_BARS = 3
+COST_RULES = {
+    'current rules': Rules(),
+    'TP 3 / SL 3, no technical exit': Rules(technical_exit=False, take_profit_pct=3, stop_loss_pct=3),
+    'RSI<30 only, TP 5 / SL 3, no technical exit': Rules(signals=(STRONG,), rsi_buy_strong=30, technical_exit=False,
+                                                         take_profit_pct=5, stop_loss_pct=3),
+}
+
+
+def passes_gate(stats_by_period: dict, margin_pp: float = CALIBRATION_MARGIN_PP, min_trades: int = GATE_MIN_TRADES) -> bool:
+    """The decision gate: at least min_trades trades and an average net P/L per trade of at least margin_pp in every period."""
+    return all(p in stats_by_period and stats_by_period[p]['trades'] >= min_trades
+               and stats_by_period[p]['avg_pl_pct'] >= margin_pp for p in PERIODS)
+
+
+def order_rules(rules: Rules, orders: str, interval: str) -> Rules:
+    """`rules` with market orders, or with limit entries 0.5% below the signal price valid for 3 bars and a limit take-profit."""
+    if orders == 'market':
+        return rules
+    return replace(rules, entry_order='limit', limit_offset_pct=0.5, take_profit_order='limit',
+                   limit_timeout=LIMIT_TIMEOUT_BARS * pd.Timedelta(milliseconds=INTERVAL_MS[interval]))
+
+
+def _cost_market(args):
+    db_path, market, interval, half_spread = args
+    candles = _candles(db_path, market)
+    if len(candles) < min_history(interval):
+        return market, interval, None
+    snaps = full_series_snapshots(candles)
+    frames = []
+    for period, (start, end) in PERIODS.items():
+        window = snaps.loc[start:end]
+        if len(window) < bars_for(pd.Timedelta(days=1), interval):  # less than a day of data
+            continue
+        for orders in ORDER_TYPES:
+            for name, rules in COST_RULES.items():
+                trades = replay({market: window}, order_rules(rules, orders, interval), max_positions=None,
+                                costs=COSTS, spreads={market: half_spread})
+                if not trades.empty:
+                    trades['interval'], trades['orders'], trades['rules'], trades['period'] = interval, orders, name, period
+                    frames.append(trades)
+    return market, interval, frames
+
+
+def cost_experiments(markets, candles_5m, candles_1h, spreads) -> tuple:
+    """Section 7: the rule sets of COST_RULES with market and limit orders on 5m and 1h candles, judged by passes_gate.
+
+    Per market and independent, like section 4. spreads: market -> median logged half-spread (median_spreads);
+    a market without one gets the median of all markets' values.
+    """
+    fallback = float(np.median(list(spreads.values())))
+    half = {m: spreads.get(m, fallback) for m in markets}
+    jobs = [(db, m, interval, half[m]) for interval, db in zip(COST_INTERVALS, (candles_5m, candles_1h), strict=True) for m in markets]
+    with ProcessPoolExecutor() as pool:
+        done = list(pool.map(_cost_market, jobs))
+    covered = {interval: sorted(m for m, i, frames in done if i == interval and frames is not None) for interval in COST_INTERVALS}
+    trades = pd.concat([f for _, _, frames in done if frames for f in frames], ignore_index=True)
+
+    def by_period(sel):
+        return {p: trade_stats(sel[sel.period == p]) for p in PERIODS}
+
+    configs = []
+    for interval in COST_INTERVALS:
+        for orders in ORDER_TYPES:
+            for name in COST_RULES:
+                periods = by_period(trades[(trades.interval == interval) & (trades.orders == orders) & (trades.rules == name)])
+                configs.append(dict(interval=interval, orders=orders, rules=name, periods=periods, passes_gate=passes_gate(periods)))
+
+    # Terciles of the markets with 5m data, ranked by their median logged spread
+    ranked = sorted(covered['5m'], key=lambda m: (half[m], m))
+    groups = [ranked[len(ranked) * i // 3:len(ranked) * (i + 1) // 3] for i in range(3)]
+    base = trades[(trades.interval == '5m') & (trades.orders == 'market') & (trades.rules == 'current rules')]
+    terciles = [dict(tercile=label, markets=group, spread_min_pct=half[group[0]] * 200, spread_max_pct=half[group[-1]] * 200,
+                     periods=by_period(base[base.market.isin(group)]))
+                for label, group in zip(('lowest', 'middle', 'highest'), groups, strict=True)]
+    low_beats_high = all(terciles[0]['periods'][p]['avg_pl_pct'] > terciles[2]['periods'][p]['avg_pl_pct'] for p in PERIODS)
+
+    missing = sorted(set(markets) - set(spreads))
+    result = dict(margin_pp=CALIBRATION_MARGIN_PP, min_trades=GATE_MIN_TRADES, markets={i: len(m) for i, m in covered.items()},
+                  spread_fallback=dict(markets=missing, half_spread=fallback), configs=configs, terciles=terciles,
+                  lowest_tercile_beats_highest=low_beats_high)
+
+    short = {p: p.split(' (')[0] for p in PERIODS}
+
+    def row(stats):
+        return {**{p: stats[p]['avg_pl_pct'] for p in PERIODS}, **{f'trades {short[p]}': stats[p]['trades'] for p in PERIODS}}
+    grid = pd.DataFrame([dict(interval=c['interval'], orders=c['orders'], rules=c['rules'], **row(c['periods']),
+                              **{'passes gate': 'yes' if c['passes_gate'] else 'no'}) for c in configs])
+    by_spread = pd.DataFrame([dict(tercile=t['tercile'], markets=len(t['markets']),
+                                   **{'spread %': f"{t['spread_min_pct']:.2f}-{t['spread_max_pct']:.2f}"}, **row(t['periods']))
+                              for t in terciles])
+    md = ['## 7. Can lower costs close the gap? (cost experiments)', '',
+          f"Each configuration runs independently on each market (one position per market, correctly ordered candles), "
+          f"on {result['markets']['5m']} markets with 5-minute and {result['markets']['1h']} with hourly candles. Fees are "
+          f"Bitvavo's {COSTS.taker_fee * 100:.2f}% taker and {COSTS.maker_fee * 100:.2f}% maker; spreads are each market's "
+          "median logged bid-ask spread. Market orders pay the taker fee and half the spread on every fill. Limit orders buy "
+          f"0.5% below the signal price, valid for {LIMIT_TIMEOUT_BARS} bars, with the maker fee and no spread; the take-profit "
+          "rests as a limit order (maker fee); every other exit is a market order.", '',
+          f"Gate: average net P/L per trade of at least {CALIBRATION_MARGIN_PP}% in every period, with at least "
+          f"{GATE_MIN_TRADES} trades in each.", '',
+          '### Average net P/L per trade (%), trades, and the gate', '', *md_table(grid, '{:+.2f}'),
+          f"- Markets without a logged spread (given the median, {fallback * 200:.2f}%): {', '.join(missing) or 'none'}.", '',
+          '### Current rules, market orders, 5m, by spread tercile', '',
+          'Markets ranked by their median logged spread (the full bid-ask spread, as the scorer logs it) and split into '
+          'three groups of equal size.', '', *md_table(by_spread, '{:+.2f}'),
+          f"- The lowest tercile does better than the highest in every period: {'yes' if low_beats_high else 'no'}.", '']
+    return md, result
+
+
 # ---------------------------------------------------------------- main
 
-HOURLY_SECTIONS = ('4', '5', '7')  # section 7 arrives with the rule-search work
+HOURLY_SECTIONS = ('4', '5')  # section 7 runs both intervals itself and reads 5-minute candles from --candles
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -440,12 +559,15 @@ def main(argv=None) -> int:
     parser.add_argument('--out', default='data/analysis')
     parser.add_argument('--sections', default='1,2,3,4,5,6', help='comma-separated section numbers to run')
     parser.add_argument('--interval', default='5m', choices=list(INTERVAL_MS), help='candle interval of --candles')
+    parser.add_argument('--candles-1h', help='hourly candle cache; required for section 7')
     args = parser.parse_args(argv)
     if args.interval != '5m':
         # the other sections replay or compare against 5-minute candles
         disallowed = set(args.sections.split(',')) - set(HOURLY_SECTIONS)
         if disallowed:
             parser.error(f"--interval {args.interval} supports only sections {','.join(HOURLY_SECTIONS)}, not {','.join(sorted(disallowed))}")
+    if '7' in args.sections.split(',') and not args.candles_1h:
+        parser.error('section 7 needs --candles-1h')
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -458,6 +580,7 @@ def main(argv=None) -> int:
         '4': lambda: rule_study(monitored, args.candles, args.interval),
         '5': lambda: signal_edges(monitored, args.candles, args.interval),
         '6': lambda: market_selection(conn, args.candles),
+        '7': lambda: cost_experiments(monitored, args.candles, args.candles_1h, median_spreads(conn)),
     }
     md, results = ['# Bender log analysis', ''], {}
     for key in args.sections.split(','):
