@@ -13,7 +13,7 @@ def mock_market_ops():
     mock.client.bitvavo = Mock()
 
     # Mock candles data
-    mock.client.bitvavo.candles.return_value = [
+    mock.get_historical_candles.return_value = [
         [1640000000000, '100.0', '110.0', '95.0', '105.0', '1000.0']
         for _ in range(100)
     ]
@@ -813,3 +813,22 @@ class TestEdgeCases:
 
         for market_strategy in strategy.strategies.values():
             assert market_strategy.investment_amount == 10000.0
+
+
+def test_empty_selection_manages_held_positions_and_accepts_a_rescan(tmp_path):
+    from trader.virtual_wallet import VirtualWallet
+    wallet = VirtualWallet(db_path=str(tmp_path / 'wallet.db'), initial_balance=100.0)
+    wallet.record_buy('ABC-EUR', price=1.0, amount=10.0, fee=0.025)
+    ops = Mock()
+    ops.get_historical_candles.return_value = []
+    ops.get_ticker.return_value = {'price': '0.90'}   # -10%: the stop-loss fires
+    ops.place_market_order.return_value = {'orderId': '1'}
+
+    multi = MultiMarketStrategy(ops, [], virtual_wallet=wallet, stop_loss_pct=5.0)
+    assert multi.markets == ['ABC-EUR']
+    multi.execute_all_trades()
+    ops.place_market_order.assert_called_once_with('ABC-EUR', 'sell', 10.0)
+
+    multi.update_markets(['NEW-EUR'])
+    multi.execute_all_trades()
+    assert multi.markets == ['NEW-EUR']

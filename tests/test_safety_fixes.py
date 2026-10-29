@@ -250,6 +250,7 @@ class TestFillRecording:
 
         with patch.object(strategy, 'get_historical_data'), \
              patch.object(strategy, 'calculate_indicators'), \
+             patch.object(strategy, '_has_indicators', return_value=True), \
              patch.object(strategy, 'should_buy', return_value=(True, 'test')), \
              patch.object(strategy, 'should_sell', return_value=(False, '')):
             strategy.execute_trade()

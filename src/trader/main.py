@@ -3,6 +3,7 @@ import logging
 import argparse
 import signal
 import threading
+from dotenv import load_dotenv
 from trader.bitvavo import BitvavoClient
 from trader.config import get_config
 from trader.market import MarketOperations
@@ -182,7 +183,8 @@ def scan_all_markets_for_top_50(market_ops: MarketOperations, cache_duration_hou
 
     return top_50
 
-def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10, top_50_markets: Optional[List[str]] = None) -> List[str]:
+def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidates: int = 10, top_50_markets: Optional[List[str]] = None,
+                      max_spread_pct: float = 0.5) -> List[str]:
     """STEP 2: Find the best markets from top 50 based on detailed analysis
 
     Args:
@@ -190,12 +192,15 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
         top_n: Number of top markets to return (default: 3)
         max_candidates: Maximum number of markets to analyze in detail (default: 10)
         top_50_markets: Pre-filtered list of top 50 markets from Step 1 (optional)
+        max_spread_pct: Reject markets whose bid-ask spread is wider than this percentage (default: 0.5)
 
     Returns:
-        List of top market symbols (e.g., ['FLOKI-EUR', 'PEPE-EUR', 'SHIB-EUR'])
+        List of top market symbols (e.g., ['FLOKI-EUR', 'PEPE-EUR', 'SHIB-EUR']).
+        Empty when no candidate passes the filters: markets that were never
+        checked are not substituted.
 
     Improvements:
-        - Added bid-ask spread filter (rejects >0.5% spread)
+        - Added bid-ask spread filter (rejects spreads above max_spread_pct)
         - Added volume consistency check (penalizes pumps/dumps)
         - Reweighted scoring: Volatility 25%, Sharpe 25%, Sortino 25%, Volume 15%, Spread 10%
         - Now uses pre-filtered top 50 markets from Step 1 for efficiency
@@ -291,8 +296,8 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
                 best_ask = float(book['asks'][0][0])
                 spread_pct = ((best_ask - best_bid) / best_bid) * 100
 
-                # Spread score: 1.0 for 0% spread, 0.0 for >=0.5% spread
-                spread_score = max(0, min(1.0, 1.0 - (spread_pct / 0.5)))
+                # Spread score: 1.0 for 0% spread, 0.0 at or above max_spread_pct
+                spread_score = max(0, min(1.0, 1.0 - (spread_pct / max_spread_pct)))
         except Exception as e:
             logger.debug(f"Error fetching spread for {market}: {str(e)}")
 
@@ -322,8 +327,8 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
             penalty_applied = f"LOW_VOLUME (volume {volume_spike_ratio:.1f}x normal)"
 
         # Reject markets with excessive spread
-        if spread_pct > 0.5:
-            logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > 0.5%)")
+        if spread_pct > max_spread_pct:
+            logger.info(f"\nRejecting {market}: Spread too wide ({spread_pct:.2f}% > {max_spread_pct}%)")
             continue
 
         # A non-finite score would corrupt the ranking silently
@@ -352,8 +357,10 @@ def find_best_markets(market_ops: MarketOperations, top_n: int = 3, max_candidat
     scored_markets = sorted(scored_markets, key=lambda x: x['score'], reverse=True)
 
     if not scored_markets:
-        logger.warning("No suitable markets found, using defaults")
-        return ['VET-EUR', 'FLOKI-EUR', 'PEPE-EUR'][:top_n]
+        # No fallback list: those markets would skip the spread and score checks
+        logger.warning(f"No suitable markets found among {len(candidates)} candidates. A strict "
+                       f"MAX_SPREAD_PCT (now {max_spread_pct}%) can reject every candidate.")
+        return []
 
     # Get top N markets
     top_markets = [m['market'] for m in scored_markets[:top_n]]
@@ -424,6 +431,7 @@ def reconcile_positions(db, market_ops, force: bool = False, tolerance: float = 
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Bender Trading Bot")
     parser.add_argument('command', nargs='?', default='trade', help="Command to run: trade, virtual, or backtest")
     parser.add_argument('--market', type=str, default='VET-EUR', help="Market for backtesting (e.g., VET-EUR)")
@@ -575,15 +583,24 @@ def main():
 
             # STEP 2: Detailed analysis on top 50 to select best markets
             num_markets = virtual_config.max_positions
-            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=strategy_config.max_candidates, top_50_markets=top_50_markets)
+            markets = find_best_markets(market_ops, top_n=num_markets, max_candidates=strategy_config.max_candidates, top_50_markets=top_50_markets,
+                                       max_spread_pct=strategy_config.max_spread_pct)
 
             logger.info("\n" + "=" * 80)
             logger.info(f"FINAL SELECTION: {len(markets)} market(s) for trading")
             logger.info(f"Markets: {', '.join(markets)}")
             logger.info("=" * 80 + "\n")
 
-            # Display market information for first market
-            display_market_info(market_ops, markets[0])
+            if markets:
+                # Display market information for first market
+                display_market_info(market_ops, markets[0])
+            else:
+                # Keep going: held positions still need their stop-loss, and
+                # the periodic rescan can fill the selection later
+                logger.warning(f"No market selected: no new positions until a rescan finds one (every "
+                               f"{strategy_config.market_cache_hours} h). A strict MAX_SPREAD_PCT (now "
+                               f"{strategy_config.max_spread_pct}%) can reject every candidate. Open positions are "
+                               f"still managed.")
 
             # Startup verification - skip if resuming with existing positions
             if virtual_mode:
@@ -593,6 +610,8 @@ def main():
                     logger.info(f"Resuming with {len(active_positions)} existing position(s) - skipping test trade")
                     for pos in active_positions:
                         logger.info(f"{pos['market']}: {pos['amount']:.2f} @ €{pos['entry_price']:.6f}")
+                elif not markets:
+                    logger.warning("No market selected - skipping the virtual test trade")
                 else:
                     logger.info("Running virtual test trade cycle...")
                     if not market_ops.test_trade(markets[0]):
@@ -603,13 +622,16 @@ def main():
                 # Real trading mode: default to a read-only connectivity check.
                 # A real buy+sell cycle costs fees and spread on every startup,
                 # so it is opt-in via --test-trade.
-                if args.test_trade:
+                if args.test_trade and markets:
                     logger.info("Running REAL test trade cycle (--test-trade)...")
                     if not market_ops.test_trade(markets[0]):
                         logger.error("Test trade failed - aborting strategy")
                         return
                     logger.info("Test trade successful - starting main strategy")
                 else:
+                    if args.test_trade:
+                        logger.warning("--test-trade needs a selected market: running the read-only "
+                                       "connectivity check instead")
                     logger.info("Running read-only connectivity check...")
                     if not market_ops.connectivity_check():
                         logger.error("Connectivity check failed - aborting strategy")
@@ -637,40 +659,24 @@ def main():
                 max_drawdown_pct=strategy_config.max_drawdown_pct
             )
 
-            # Create strategy based on number of markets
-            # Pass virtual_wallet and strategy_config to strategies when in virtual mode
-            if len(markets) > 1:
-                # Multi-market strategy
-                logger.info(f"Using multi-market strategy with {len(markets)} markets")
-                strategy = MultiMarketStrategy(
-                    market_ops=market_ops,
-                    markets=markets,
-                    investment_per_market=strategy_config.trade_amount,
-                    virtual_wallet=virtual_wallet if virtual_mode else None,
-                    max_positions=virtual_config.max_positions,
-                    stop_loss_pct=strategy_config.stop_loss_pct,
-                    take_profit_pct=strategy_config.take_profit_pct,
-                    rsi_buy_strong=strategy_config.rsi_buy_strong,
-                    rsi_buy_moderate=strategy_config.rsi_buy_moderate,
-                    rsi_sell=strategy_config.rsi_sell,
-                    risk_manager=risk_manager
-                )
-            else:
-                # Single market strategy
-                logger.info("Using single-market strategy")
-                strategy = EnhancedStrategy(
-                    market_ops=market_ops,
-                    market=markets[0],
-                    investment_amount=strategy_config.trade_amount,
-                    virtual_wallet=virtual_wallet if virtual_mode else None,
-                    max_positions=virtual_config.max_positions,
-                    stop_loss_pct=strategy_config.stop_loss_pct,
-                    take_profit_pct=strategy_config.take_profit_pct,
-                    rsi_buy_strong=strategy_config.rsi_buy_strong,
-                    rsi_buy_moderate=strategy_config.rsi_buy_moderate,
-                    rsi_sell=strategy_config.rsi_sell,
-                    risk_manager=risk_manager
-                )
+            # Always the multi-market strategy, even for one market or none:
+            # it adds markets holding a position from an earlier session (so
+            # they keep their stop-loss), rotates markets on each rescan and
+            # drops delisted ones. Pass virtual_wallet in virtual mode.
+            logger.info(f"Using multi-market strategy with {len(markets)} selected market(s)")
+            strategy = MultiMarketStrategy(
+                market_ops=market_ops,
+                markets=markets,
+                investment_per_market=strategy_config.trade_amount,
+                virtual_wallet=virtual_wallet if virtual_mode else None,
+                max_positions=virtual_config.max_positions,
+                stop_loss_pct=strategy_config.stop_loss_pct,
+                take_profit_pct=strategy_config.take_profit_pct,
+                rsi_buy_strong=strategy_config.rsi_buy_strong,
+                rsi_buy_moderate=strategy_config.rsi_buy_moderate,
+                rsi_sell=strategy_config.rsi_sell,
+                risk_manager=risk_manager
+            )
 
             # Shared shutdown signal: strategy loop, background threads and the
             # TUI all stop through this. The strategy checks it between cycles,
@@ -700,11 +706,9 @@ def main():
                         fresh_top_50 = scan_all_markets_for_top_50(market_ops, cache_duration_hours=strategy_config.market_cache_hours)
                         fresh_markets = find_best_markets(market_ops, top_n=num_markets,
                                                           max_candidates=strategy_config.max_candidates,
-                                                          top_50_markets=fresh_top_50)
-                        if hasattr(strategy, 'update_markets'):
-                            strategy.update_markets(fresh_markets)
-                        else:
-                            logger.info("Single-market strategy: market rotation requires restart")
+                                                          top_50_markets=fresh_top_50,
+                                                          max_spread_pct=strategy_config.max_spread_pct)
+                        strategy.update_markets(fresh_markets)
                         logger.info("Market rescan completed")
                         logger.info("=" * 80 + "\n")
                     except Exception as e:

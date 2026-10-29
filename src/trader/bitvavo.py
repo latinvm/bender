@@ -2,7 +2,7 @@ from python_bitvavo_api.bitvavo import Bitvavo
 import logging
 import time
 
-from trader.exceptions import AuthenticationError, BitvavoError, MarketNotFoundError, RateLimitError
+from trader.exceptions import AuthenticationError, BitvavoError, MarketDelistedError, MarketNotFoundError, RateLimitError
 
 logger = logging.getLogger('trader.bitvavo')
 
@@ -26,6 +26,8 @@ def check_bitvavo_response(response, context: str = ''):
             raise RateLimitError(f"{prefix}rate limit exceeded (code {code}): {message}")
         if (isinstance(code, int) and 300 <= code < 400) or 'UNAUTHORIZED' in str(message).upper():
             raise AuthenticationError(f"{prefix}authentication failed (code {code}): {message}")
+        if code == 219:
+            raise MarketDelistedError(f"{prefix}{message}")
         if code == 205 or 'market' in str(message).lower() and 'not' in str(message).lower():
             raise MarketNotFoundError(f"{prefix}{message}")
         raise BitvavoError(f"{prefix}API error (code {code}): {message}")

@@ -2,11 +2,17 @@
 
 An open-source crypto trading bot that automates your trading on the [Bitvavo](https://bitvavo.com/invite?a=00B4208D84) exchange. Bender uses technical analysis (RSI, MACD, Bollinger Bands) to execute trades 24/7, featuring multi-market portfolio management, risk controls, and both paper trading and live trading modes.
 
+## 📊 Project status
+
+Bender is an experiment, not a proven money-maker. From August to October 2026 it paper-traded for 76 days on live Bitvavo data. That run found a bug the backtests had missed: candles were read in reverse order, so every indicator, and the market scorer, worked backwards. It also showed that even with the bug fixed, the buy signals' edge (+0.1–0.3% per trade) is smaller than the fees (0.5% per round trip). The bugs are fixed. The full analysis, with the tools to reproduce it, is in [docs/analysis](docs/analysis/2026-10-28-log-analysis.md). A follow-up test of lower trading costs in the replay (limit orders, hourly candles, tight-spread markets) found that none of them closes that gap: see the [cost experiments](docs/analysis/2026-10-28-cost-experiments.md). Until a version beats those costs on paper, use virtual mode.
+
 ## 🧪 A Vibe Coding Origin Story
 
 Bender started as my first "vibe coding" experiment. What began as copy-pasting functions and classes through Claude's chat interface—iterating piece by piece, asking "can you add this?" and "what if we did that?"—has evolved into a fully-fledged trading bot built with [Claude Code](https://github.com/anthropics/claude-code).
 
 The journey from scattered code snippets in a chat window to a structured project with proper testing, architecture, and documentation has been a testament to how AI-assisted development is changing the way we build software. This project represents the full spectrum: from the earliest days of prompting for individual functions, to now having an AI pair programmer that understands the entire codebase.
+
+The 76-day paper-trading run in 2026 also showed me the limits of that approach. The code looked right, the tests passed and the backtests looked reasonable, yet every indicator was being computed on candles in reverse order: the backtester sorted its candles, and the live bot didn't. Nothing crashed, so nothing flagged it. It took parsing the 1 GB log and checking it against the exchange's own data to find it. The lesson: code, AI-written or not, has to be checked against what it actually does on real data, not only against its tests.
 
 ## 🌟 Why Bender?
 
@@ -14,22 +20,22 @@ Ever wished you had a reliable companion to handle your crypto trading while you
 
 ### 🎯 What Makes Bender Special
 
-- **Peace of Mind**: Set your strategy and let Bender handle the rest
+- **Hands-off**: Set your strategy and Bender runs it for you
 - **24/7 Operation**: Markets never sleep, and neither does Bender
-- **Smart Strategies**: Implements proven trading strategies while managing risks
-- **Transparent**: Always know what's happening with your trades
+- **Risk Controls**: Stop-loss, take-profit, a daily loss limit and a drawdown halt
+- **Transparent**: Every decision is logged, and the tools to analyse a run are included
 - **User-Friendly**: Built with simplicity in mind - no complex setups needed
 
 ### 📈 Trading Strategy
 
-Bender uses a carefully crafted trading strategy designed for both safety and performance:
+Bender combines three common technical-analysis buy signals with fixed exits. They are a starting point, not a proven edge: see the [Aug–Oct 2026 analysis](docs/analysis/2026-10-28-log-analysis.md) for how they performed.
 
 #### 🎯 Multi-Signal Buy Strategy
 
 Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. This gives more opportunities while maintaining quality:
 
 **Signal 1: Strong Oversold (RSI < 40)**
-- **What it means**: The price has dropped significantly and is likely to bounce back
+- **What it means**: The price has dropped significantly and may bounce back
 - **Think of it as**: A rubber band stretched down - it wants to snap back up
 - **Example**: `BOME-EUR: RSI 24.79 → Strong Oversold! ✓ BUY`
 
@@ -38,7 +44,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 - **Think of it as**: A ball rolling downhill that's starting to slow and reverse
 - **Example**: `DOGS-EUR: RSI 38.28, MACD crossing up → Moderate + Momentum! ✓ BUY`
 
-**Signal 3: Near Support + Momentum (Price < Lower BB × 1.01 AND MACD ≈ Signal)**
+**Signal 3: Near Support + Momentum (Price < Lower BB × 1.01 AND MACD > Signal)**
 - **What it means**: Price hit a support level (floor) and momentum is about to turn
 - **Think of it as**: A basketball hitting the floor - about to bounce
 - **Example**: `FLOKI-EUR: At support, MACD crossing → Near Support! ✓ BUY`
@@ -47,7 +53,7 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 
 **Technical Sell Signal (RSI > 60 AND MACD < Signal)**
 - Price is overbought AND momentum is turning negative
-- Exits before major reversals
+- Aims to exit before a reversal
 
 **Automatic Risk Controls**
 - **Stop-Loss**: Sells at -5% by default (configurable via `STOP_LOSS_PCT`)
@@ -64,10 +70,10 @@ Bender uses 3 independent buy signals - if **ANY** signal triggers, it buys. Thi
 #### 🎲 Intelligent Market Selection
 
 - **Multi-factor scoring system** analyzing 5 key metrics
-- **Bid-ask spread filtering** (rejects markets with >0.5% spread)
+- **Bid-ask spread filtering** (rejects markets wider than `MAX_SPREAD_PCT`, default 0.5%)
 - **Volume consistency checks** (detects and avoids pump & dump patterns)
 - **Risk-adjusted returns analysis** (Sharpe & Sortino ratios)
-- **Volatility-focused selection** to maximize trading opportunities
+- **Volatility-focused selection** for more trading opportunities
 
 #### 💼 Portfolio Management
 
@@ -147,6 +153,7 @@ MAX_CANDIDATES=30                # Maximum markets to analyze in detail
 RSI_BUY_STRONG=40.0              # Signal 1 threshold: buy when RSI below this
 RSI_BUY_MODERATE=50.0            # Signal 2 threshold: buy when RSI below this AND MACD > signal
 RSI_SELL=60.0                    # Sell threshold: sell when RSI above this AND MACD < signal
+MAX_SPREAD_PCT=0.5               # Skip markets whose bid-ask spread is wider than this percentage
 ```
 
 **What These Settings Mean:**
@@ -158,6 +165,7 @@ RSI_SELL=60.0                    # Sell threshold: sell when RSI above this AND 
 - **STRATEGY_INTERVAL**: How often to check for trading signals in seconds (default: 60)
 - **MARKET_CACHE_HOURS**: How long to cache market rankings (default: 6 hours)
 - **MAX_CANDIDATES**: Number of top markets to analyze deeply (default: 30)
+- **MAX_SPREAD_PCT**: Widest bid-ask spread, in percent, a market may have and still be traded (default: 0.5). Must be greater than 0. Lower values trade only tight-spread markets. Strict values shrink the pool of candidates: if none passes, Bender opens no new positions (open ones are still managed) until a rescan finds one. Virtual fills do not pay the spread, so the benefit of a lower limit cannot show up in paper trading.
 
 **Example Custom Configuration:**
 ```env
@@ -222,14 +230,28 @@ trader trade --test-trade
 - A read-only connectivity check verifies your API credentials without placing any orders. Pass `--test-trade` if you explicitly want a real minimum-size buy+sell verification cycle instead.
 - Recorded positions are reconciled against your actual exchange balances. If the database references assets you no longer hold, Bender refuses to trade until you clean up the database or pass `--force`.
 
+**If a market you hold is delisted (real mode):** Bender stops trading that market, logs the delisting once and leaves the position alone: it cannot be sold through the API, and Bender never closes a real position it could not sell. The position stays in the database, so it keeps counting toward `MAX_POSITIONS`, and once the coins have left your account the startup reconciliation refuses to trade. Handle the coins on Bitvavo, then, with the bot stopped, close the recorded position with the database's own exit method, giving the price in EUR per coin you actually received (`0.0` if nothing):
+
+```bash
+python -c "from trader.database import TradeDatabase; TradeDatabase().record_trade_exit('RVN-EUR', exit_price=0.0)"
+```
+
+This marks the market's oldest open trade in `TRADER_DB_PATH` (default `data/trades.db`) as closed and removes its position. The realized loss counts toward `MAX_DAILY_LOSS_PCT` and `MAX_DRAWDOWN_PCT` like any other trade.
+
 ### Monitor Mode
 
 When you use the `--monitor` flag, Bender runs a beautiful live terminal UI:
 - **Real-time updates** - See trades happen instantly as the bot runs
 - **Live positions** - Watch your positions and P/L update every 5 seconds
 - **Trading statistics** - View win rate, total trades, and performance metrics
-- **Logs to file** - All output goes to `logs/YYYY-MM-DD.log` instead of console
+- **Logs to file** - All output goes to `logs/YYYY-MM-DD.log` instead of console (a new file each day)
 - **Interactive** - Press `r` to refresh, `q` to quit
+
+The text log keeps trades, rotations and errors at the default `INFO` level. The per-check
+details (indicator values, signal checks, ticker fetches) are logged at `DEBUG`; set
+`LOG_LEVEL=DEBUG` in `.env` to see them. Every evaluation is also written as one JSON line to
+`logs/decisions-YYYY-MM-DD.jsonl` (market, action, reason, price, candle time and indicator values).
+`calibrate` (below) reads that decision log; the other analysis tools read the text log.
 
 ```bash
 # Virtual trading with live monitor
@@ -245,6 +267,56 @@ Test strategies on historical data:
 ```bash
 trader backtest --market VET-EUR --start 2024-01-01 --end 2024-12-31
 ```
+
+### Analysing a run
+
+`tools/log_analysis/` turns a text log into data and tests what would have worked. All output
+goes to `data/analysis/` (not committed).
+
+The parser reads the per-check lines ("Buy check …", "Sell check …"), which are now logged at
+`DEBUG`. So the three numbered steps below work on text logs written before that change, such as
+the Aug–Oct 2026 run, or on logs written with `LOG_LEVEL=DEBUG`.
+
+```bash
+# 1. Parse a log into SQLite (~1 minute per GB)
+python -m tools.log_analysis.parse logs/2026-08-13.log --db data/analysis/bender_2026-08-13.db
+
+# 2. Download Bitvavo 5-minute candles for the markets in the log (public data, no API key).
+#    markets.txt lists every market the log monitored or scored:
+sqlite3 data/analysis/bender_2026-08-13.db \
+    "SELECT market FROM checks UNION SELECT market FROM market_scores" > markets.txt
+python -m tools.log_analysis.candles --markets-file markets.txt \
+    --start 2026-05-15 --end 2026-10-29 --db data/analysis/candles_5m.db
+
+# 3. Replay the strategy and write report.md + results.json
+python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db \
+    --candles data/analysis/candles_5m.db --out data/analysis
+```
+
+The cost experiments are section 7 of the same tool and also need hourly candles:
+
+```bash
+python -m tools.log_analysis.candles --markets-file markets.txt --interval 1h \
+    --start 2026-05-01 --end 2026-10-29 --db data/analysis/candles_1h.db
+python -m tools.log_analysis.analyze --log-db data/analysis/bender_2026-08-13.db \
+    --candles data/analysis/candles_5m.db --candles-1h data/analysis/candles_1h.db \
+    --out data/analysis/cost-experiments --sections 7
+```
+
+To check the replay against a run of the fixed bot, `calibrate` compares the replay with the JSON
+decision logs and the virtual wallet. It needs no `DEBUG` lines, fetches the 5-minute candles that
+cover the decisions, and writes `calibration.md` and `calibration.json`. Give it its own candle file:
+it adds the new run's candles to the file it is given, and `candles_5m.db` has to stay as it is for
+the published analysis to reproduce.
+
+```bash
+python -m tools.log_analysis.calibrate --decisions 'logs/decisions-*.jsonl' --wallet data/virtual_trades.db \
+    --candles data/analysis/candles_calibration.db --out data/analysis/calibration
+```
+
+The findings from the 13 Aug - 28 Oct 2026 virtual run are in
+[docs/analysis/2026-10-28-log-analysis.md](docs/analysis/2026-10-28-log-analysis.md), and the cost
+experiments in [docs/analysis/2026-10-28-cost-experiments.md](docs/analysis/2026-10-28-cost-experiments.md).
 
 ## 🔧 Known Issues & Fixes
 
@@ -304,7 +376,7 @@ Contributions are welcome! Feel free to:
 If you find Bender helpful, the best way to support its development is by:
 1. Using my [Bitvavo referral link](https://bitvavo.com/invite?a=00B4208D84) when creating your account
 2. Starring the project on GitHub
-3. Sharing your success stories!
+3. Sharing your results, good or bad!
 
 ## 📝 License
 

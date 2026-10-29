@@ -13,7 +13,7 @@ def mock_market_ops():
     mock.client.bitvavo = Mock()
 
     # Mock candles data for technical indicators
-    mock.client.bitvavo.candles.return_value = [
+    mock.get_historical_candles.return_value = [
         [1640000000000, '100.0', '110.0', '95.0', '105.0', '1000.0']
         for _ in range(100)
     ]
@@ -178,14 +178,14 @@ class TestBuySignals:
         assert reason == "Moderate Oversold + Momentum"
 
     def test_buy_signal_3_near_support_with_momentum(self, strategy, sample_df):
-        """Test Signal 3: Near Support + Momentum (Price < Lower BB * 1.01 AND MACD crossing)"""
+        """Test Signal 3: Near Support + Momentum (Price < Lower BB * 1.01 AND MACD > Signal)"""
         df = strategy.calculate_indicators(sample_df.copy())
 
         # Set indicators to trigger signal 3
         df.loc[df.index[-1], 'RSI_14'] = 55.0  # Above 50
         df.loc[df.index[-1], 'close'] = 99.0  # Price near lower band
         df.loc[df.index[-1], 'BBL_20_2.0_2.0'] = 98.5  # Lower band
-        df.loc[df.index[-1], 'MACD_12_26_9'] = 0.5  # MACD crossing signal
+        df.loc[df.index[-1], 'MACD_12_26_9'] = 0.51  # MACD above signal
         df.loc[df.index[-1], 'MACDs_12_26_9'] = 0.5
 
         should_buy, reason = strategy.should_buy(df)
@@ -466,20 +466,18 @@ class TestExecuteTrade:
             'status': 'filled'
         }
 
-        # Create mock dataframe with buy signal
+        # Steady decline: RSI is oversold, a buy signal (a flat series has
+        # an undefined RSI and is rightly skipped as insufficient data)
         with patch.object(strategy, 'get_historical_data') as mock_get_data:
+            closes = [110.0 - i * 0.1 for i in range(100)]
             df = pd.DataFrame({
-                'close': [100.0] * 100,
-                'high': [105.0] * 100,
-                'low': [95.0] * 100,
-                'open': [100.0] * 100,
+                'close': closes,
+                'high': [c + 1 for c in closes],
+                'low': [c - 1 for c in closes],
+                'open': closes,
                 'volume': [1000.0] * 100
             })
             df.index = pd.date_range(start='2024-01-01', periods=100, freq='5min')
-            df = strategy.calculate_indicators(df)
-
-            # Set buy signal
-            df.loc[df.index[-1], 'RSI_14'] = 35.0
 
             mock_get_data.return_value = df
 
@@ -601,8 +599,8 @@ class TestGetHistoricalData:
         assert isinstance(df, pd.DataFrame)
         assert len(df) > 0
         assert list(df.columns) == ['open', 'high', 'low', 'close', 'volume']
-        strategy.market_ops.client.bitvavo.candles.assert_called_with(
-            'TEST-EUR', '5m', {'limit': 100}
+        strategy.market_ops.get_historical_candles.assert_called_with(
+            'TEST-EUR', interval='5m', limit=100
         )
 
     def test_get_historical_data_custom_params(self, strategy):
@@ -610,6 +608,24 @@ class TestGetHistoricalData:
         df = strategy.get_historical_data(interval='1h', limit=200)
 
         assert isinstance(df, pd.DataFrame)
-        strategy.market_ops.client.bitvavo.candles.assert_called_with(
-            'TEST-EUR', '1h', {'limit': 200}
+        strategy.market_ops.get_historical_candles.assert_called_with(
+            'TEST-EUR', interval='1h', limit=200
         )
+
+
+def one_row(macd, macd_signal):
+    """One-row indicator frame: price at the lower band, RSI neutral, so only signal 3 can fire."""
+    return pd.DataFrame([{
+        'close': 0.010, 'BBL_20_2.0_2.0': 0.0100, 'BBU_20_2.0_2.0': 0.012, 'RSI_14': 55.0,
+        'MACD_12_26_9': macd, 'MACDs_12_26_9': macd_signal,
+    }])
+
+
+def test_near_support_requires_macd_above_signal(strategy):
+    df = one_row(macd=1e-9, macd_signal=2e-9)  # bearish by a hair: Aug-Oct code bought here
+    assert strategy.should_buy(df) == (False, "")
+
+
+def test_near_support_with_rising_macd_buys(strategy):
+    df = one_row(macd=2e-9, macd_signal=1e-9)
+    assert strategy.should_buy(df) == (True, "Near Support + Momentum")

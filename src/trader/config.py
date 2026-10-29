@@ -31,6 +31,7 @@ class TradingStrategyConfig(NamedTuple):
     rsi_sell: float = 60.0           # Sell when RSI above this AND MACD bearish
     max_daily_loss_pct: float = 10.0  # Halt new buys when today's realized loss exceeds this % of capital (0 disables)
     max_drawdown_pct: float = 25.0    # Halt new buys when total realized loss exceeds this % of capital (0 disables)
+    max_spread_pct: float = 0.5       # Reject markets whose bid-ask spread is wider than this %
 
 def get_project_root() -> Path:
     """Get project root directory (2 levels up from this file)"""
@@ -91,6 +92,9 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
     rsi_sell = float(os.getenv('RSI_SELL', '60.0'))
     max_daily_loss_pct = float(os.getenv('MAX_DAILY_LOSS_PCT', '10.0'))
     max_drawdown_pct = float(os.getenv('MAX_DRAWDOWN_PCT', '25.0'))
+    max_spread_pct = float(os.getenv('MAX_SPREAD_PCT', '0.5'))
+    if not max_spread_pct > 0:  # also rejects NaN
+        raise ValueError("MAX_SPREAD_PCT must be greater than 0")
 
     return (
         BitvavoConfig(api_key, api_secret, operator_id),
@@ -98,5 +102,5 @@ def get_config(load_env: bool = True) -> tuple[BitvavoConfig, DatabaseConfig, Vi
         VirtualTradingConfig(virtual_enabled, virtual_db_path, virtual_initial_balance, virtual_trading_fee, max_positions),
         TradingStrategyConfig(trade_amount, stop_loss_pct, take_profit_pct, max_coin_price, strategy_interval,
                               market_cache_hours, max_candidates, rsi_buy_strong, rsi_buy_moderate, rsi_sell,
-                              max_daily_loss_pct, max_drawdown_pct)
+                              max_daily_loss_pct, max_drawdown_pct, max_spread_pct)
     )
